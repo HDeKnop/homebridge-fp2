@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { normalizeDeviceId } from './mappers.js';
 import type { StoredPairing } from './types.js';
 
 /**
@@ -25,6 +26,45 @@ export class PairingStore {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw err;
     }
+  }
+
+  /**
+   * Fallback lookup when `load(host)` misses — usually because the user
+   * changed `host` in config (e.g. moved from IP to mDNS name, or vice
+   * versa, or DHCP renamed the device's hostname). Scans every pairing
+   * file in the store and returns the one whose deviceId matches.
+   *
+   * Returns null if nothing matches, or if the store directory is empty
+   * / does not yet exist.
+   */
+  async findByDeviceId(deviceId: string): Promise<StoredPairing | null> {
+    const { readdir } = await import('node:fs/promises');
+    let entries: string[];
+    try {
+      entries = await readdir(this.baseDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw err;
+    }
+    // Normalize both sides so the hex-encoded ASCII form hap-controller
+    // emits ("33343a38463a...") matches the canonical mDNS form
+    // ("34:8F:C1:..."). Without this, the lookup silently misses.
+    const want = normalizeDeviceId(deviceId)?.toLowerCase();
+    if (!want) return null;
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue;
+      try {
+        const raw = await readFile(join(this.baseDir, entry), 'utf8');
+        const record = JSON.parse(raw) as StoredPairing;
+        const have = normalizeDeviceId(record.deviceId)?.toLowerCase();
+        if (have === want) return record;
+      } catch {
+        // Skip unreadable / unparseable files — don't let one corrupt
+        // pairing block recovery of others.
+        continue;
+      }
+    }
+    return null;
   }
 
   async save(record: StoredPairing): Promise<void> {

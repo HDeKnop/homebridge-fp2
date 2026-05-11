@@ -10,13 +10,6 @@ export interface Fp2DeviceConfig {
   pin: string;
   exposeZones?: boolean;
   exposeLightSensor?: boolean;
-  exposeResetSwitch?: boolean;
-  /**
-   * Override the auto-detected reset characteristic, formatted as `"aid.iid"`.
-   * Only set this if auto-detection picks the wrong characteristic — the
-   * plugin logs its candidate at INFO level on connect.
-   */
-  resetCharId?: string;
   pollIntervalSeconds?: number;
   excludedZones?: string[];
   debug?: boolean;

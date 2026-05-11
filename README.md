@@ -42,6 +42,29 @@ From the CLI:
 npm install -g homebridge-fp2
 ```
 
+### Setup wizard (Homebridge UI)
+
+This plugin ships a custom **setup wizard** for the Homebridge Config UI X
+interface. After installing, click **Settings** on the plugin tile and the
+wizard takes you through:
+
+1. **Discover** — scans your network via mDNS for Aqara FP2 devices.
+   Each candidate is shown with its mDNS name, IP, port, and pairing
+   status. Devices already claimed by another controller are flagged
+   with the workaround.
+2. **Setup code** — accepts the pin in any common format (sticker
+   `XXXX-XXXX`, plain `XXXXXXXX`, or HAP canonical `XXX-XX-XXX`) and
+   normalises it.
+3. **Name** — what the device shows up as in the Home app. Validated
+   against HomeKit's stricter 2.0 naming rules so you don't end up with
+   "No Response".
+4. **Options** — zone exposure and light-sensor exposure toggles.
+5. **Confirm** — shows the exact JSON block being added to your
+   Homebridge config, then writes it via the UI API.
+
+If the wizard's discovery doesn't surface your FP2, an
+**"Enter details manually"** path lets you type the identifier yourself.
+
 ## Pairing the FP2
 
 The FP2 ships paired to whichever Apple Home claims it first. To use this
@@ -90,15 +113,33 @@ Or use the **Homebridge Config UI** — the schema renders a form.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | string | — | Display name (required) |
-| `host` | string | — | IP address (required) |
-| `port` | int | `80` | HAP port |
+| `name` | string | — | Display name in HomeKit (required) |
+| `host` | string | — | FP2 identifier — mDNS bonjour name, hostname, or IP (required, see below) |
+| `port` | int | (mDNS) | HAP port. Usually omit — mDNS discovery resolves the FP2's ephemeral port. |
 | `pin` | string | — | Setup pin `###-##-###` (required, first run only) |
 | `exposeZones` | bool | `true` | Create per-zone Occupancy sensors |
 | `exposeLightSensor` | bool | `true` | Create Light Sensor service |
 | `pollIntervalSeconds` | int | `30` | Fallback poll. Real-time uses HAP events |
 | `excludedZones` | string[] | `[]` | Zone names (Aqara app) to skip |
 | `debug` | bool | `false` | Verbose logs |
+
+### Identifying your FP2 (the `host` field)
+
+The plugin accepts **three forms** for `host`, in order of robustness:
+
+1. **mDNS bonjour name** (recommended): `Presence-Sensor-FP2-A73D`
+   Stable across DHCP lease changes *and* factory resets — the suffix is
+   derived from the FP2's Wi-Fi MAC. Find it via `dns-sd -B _hap._tcp`
+   on macOS or `avahi-browse -r _hap._tcp` on Linux.
+2. **mDNS hostname**: `Presence-Sensor-FP2-A73D.local`
+   Same stability as (1).
+3. **IPv4 address**: `192.168.1.123`
+   Only stable if you've reserved the DHCP lease in your router.
+
+After the first successful pair, the plugin also remembers the FP2's HAP
+device id and uses that to follow it across DHCP changes — so even an
+IP-based config keeps working when the lease renews, as long as the FP2
+is still on the LAN with mDNS reachable.
 
 ## Configuring zones
 

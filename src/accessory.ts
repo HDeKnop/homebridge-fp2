@@ -10,15 +10,12 @@ import {
   nowEveSeconds,
 } from './eve-characteristics.js';
 import { sanitizeHapName, toHapLux, toHapOccupancy } from './mappers.js';
-import { RESET_SWITCH_PULSE_MS } from './settings.js';
 import type { Fp2DeviceConfig, Fp2State, ZoneState } from './types.js';
 
 /** Bridges a single FP2 device to one PlatformAccessory carrying all its services. */
 export class Fp2Accessory {
   private mainOccupancyService: Service;
   private lightSensorService: Service | null = null;
-  private resetSwitchService: Service | null = null;
-  private resetSwitchAutoOffTimer: NodeJS.Timeout | null = null;
   /** Zone subtype → Service for fast updates. */
   private zoneServices = new Map<string, Service>();
   /** Eve-style last-activation marker; bumped whenever any occupancy goes high. */
@@ -39,11 +36,10 @@ export class Fp2Accessory {
       this.removeLightSensorIfPresent();
     }
 
-    if (cfg.exposeResetSwitch === true) {
-      this.resetSwitchService = this.ensureResetSwitchService();
-    } else {
-      this.removeResetSwitchIfPresent();
-    }
+    // Defensive: a previous version of the plugin exposed a "Reset Presence"
+    // Switch service. If the cached accessory still has it, remove it so the
+    // tree matches what's documented now.
+    this.removeLegacyResetSwitchIfPresent();
 
     // Initial sync from current cached state (may be empty pre-connect).
     this.syncFromState(client.getState());
@@ -145,40 +141,18 @@ export class Fp2Accessory {
   }
 
   /**
-   * Momentary "Reset Presence" switch. Turning it on writes the reset trigger
-   * to the FP2 (clearing stuck presence), then auto-toggles back off ~1s later
-   * so the tile behaves as a button.
+   * Earlier versions of the plugin exposed a momentary "Reset Presence" Switch
+   * that wrote a discovered writable boolean characteristic on the FP2.
+   * Public reverse-engineering hasn't pinned down a reliable trigger across
+   * firmware revisions, so the feature is parked. This helper strips the
+   * service from a cached accessory left over from those earlier versions.
    */
-  private ensureResetSwitchService(): Service {
-    const S = this.platform.Service;
-    const C = this.platform.Characteristic;
-    const subtype = 'reset-presence';
-    const existing = this.accessory.getServiceById(S.Switch, subtype);
-    const switchName = sanitizeHapName(`${this.cfg.name} Reset Presence`, 'Reset Presence');
-    const service = existing ?? this.accessory.addService(S.Switch, switchName, subtype);
-    service.setCharacteristic(C.Name, switchName);
-    service.getCharacteristic(C.On)
-      .onGet(() => false)
-      .onSet(async (value) => {
-        if (value !== true) return;
-        try {
-          await this.client.triggerPresenceReset();
-        } catch (err) {
-          this.platform.log.warn(
-            `[${this.cfg.name}] reset-presence write failed: ${(err as Error).message}`,
-          );
-        }
-        if (this.resetSwitchAutoOffTimer) clearTimeout(this.resetSwitchAutoOffTimer);
-        this.resetSwitchAutoOffTimer = setTimeout(() => {
-          this.resetSwitchService?.updateCharacteristic(C.On, false);
-        }, RESET_SWITCH_PULSE_MS);
-      });
-    return service;
-  }
-
-  private removeResetSwitchIfPresent(): void {
+  private removeLegacyResetSwitchIfPresent(): void {
     const existing = this.accessory.getServiceById(this.platform.Service.Switch, 'reset-presence');
-    if (existing) this.accessory.removeService(existing);
+    if (existing) {
+      this.accessory.removeService(existing);
+      this.platform.api.updatePlatformAccessories([this.accessory]);
+    }
   }
 
   private syncFromState(state: Fp2State): void {

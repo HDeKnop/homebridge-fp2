@@ -38,6 +38,26 @@ export function toHapLux(lux: number | null | undefined): number {
  * with spaces, collapses runs of whitespace, and strips leading/trailing
  * non-alphanumerics. Returns a safe default if the input collapses to empty.
  */
+/**
+ * hap-controller's `AccessoryPairingID` is stored as hex-encoded ASCII
+ * (e.g. `"33343a38463a43313a..."` → `"34:8F:C1:76:..."`). mDNS reports
+ * the canonical colon form. Normalize so cross-source comparisons work.
+ *
+ * Idempotent: if the input is already in `XX:XX:...` form it's returned
+ * verbatim. Returns null when the input is null/undefined.
+ */
+export function normalizeDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  if (id.includes(':')) return id;
+  if (/^[0-9a-f]+$/i.test(id) && id.length % 2 === 0) {
+    try {
+      const decoded = Buffer.from(id, 'hex').toString('utf8');
+      if (decoded.includes(':')) return decoded;
+    } catch { /* noop */ }
+  }
+  return id;
+}
+
 export function sanitizeHapName(raw: string, fallback = 'Sensor'): string {
   const cleaned = raw
     .replace(/[^a-zA-Z0-9 ']/g, ' ')

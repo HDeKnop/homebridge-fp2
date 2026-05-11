@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Add an Aqara FP2</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header class="hdr">
+        <h1>Add an Aqara FP2</h1>
+        <ol class="steps" aria-label="Wizard steps">
+          <li data-step="discover">Discover</li>
+          <li data-step="pin">Pin</li>
+          <li data-step="name">Name</li>
+          <li data-step="options">Options</li>
+          <li data-step="confirm">Confirm</li>
+        </ol>
+      </header>
+
+      <!-- Step 1: Discover -->
+      <section class="step" data-step="discover" hidden>
+        <h2>Find your FP2</h2>
+        <p class="muted">
+          Scanning your local network for Aqara Presence Sensor FP2 devices.
+          The FP2 needs to be on the same Wi-Fi network as Homebridge.
+        </p>
+
+        <div id="discover-status" class="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="status-text">Scanning…</span>
+        </div>
+
+        <ul id="device-list" class="device-list" hidden></ul>
+
+        <div id="no-devices" class="empty" hidden>
+          <h3>No FP2s found</h3>
+          <p>
+            Make sure the FP2 is powered on and on the same network as
+            Homebridge. If you haven't onboarded it yet, run the Aqara Home
+            app's setup flow first to give it Wi-Fi credentials, then
+            <strong>remove it from the Apple Home app</strong> to release
+            the HomeKit pairing so this plugin can claim it.
+          </p>
+          <button type="button" class="btn" id="rescan-btn">Scan again</button>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" id="manual-entry-btn">
+            Enter details manually instead
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 2: PIN -->
+      <section class="step" data-step="pin" hidden>
+        <h2>Enter the setup code</h2>
+        <p class="muted">
+          The 8-digit HomeKit setup code is printed on the sticker on the back
+          of the FP2 (look for a code that looks like
+          <code>2871-7054</code>). It's also visible in the Aqara Home app
+          under the device's settings.
+        </p>
+
+        <label class="field" id="manual-host-field" hidden>
+          <span>FP2 identifier</span>
+          <input
+            type="text"
+            id="manual-host-input"
+            placeholder="Presence-Sensor-FP2-A73D or 192.168.1.123"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="manual-host-help"
+          />
+          <span id="manual-host-help" class="hint">
+            mDNS bonjour name (recommended), <code>.local</code> hostname, or
+            IP. Find it via <code>dns-sd -B _hap._tcp</code> (macOS) or
+            <code>avahi-browse -r _hap._tcp</code> (Linux).
+          </span>
+        </label>
+
+        <label class="field">
+          <span>Setup code</span>
+          <input
+            type="text"
+            id="pin-input"
+            placeholder="2871-7054"
+            autocomplete="off"
+            spellcheck="false"
+            inputmode="numeric"
+            aria-describedby="pin-help"
+          />
+        </label>
+        <p id="pin-help" class="hint">
+          Any common format works — <code>2871-7054</code>,
+          <code>28717054</code>, or <code>287-17-054</code> will all be
+          accepted and converted to the HAP standard form.
+        </p>
+        <p id="pin-error" class="error" hidden></p>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" data-back>Back</button>
+          <button type="button" class="btn primary" id="pin-next-btn">
+            Next
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 3: Name -->
+      <section class="step" data-step="name" hidden>
+        <h2>Name it for HomeKit</h2>
+        <p class="muted">
+          This is the name you'll see in the Home app. It can be changed
+          there later — alphanumeric, spaces, and apostrophes only.
+        </p>
+
+        <label class="field">
+          <span>Display name</span>
+          <input
+            type="text"
+            id="name-input"
+            placeholder="Living Room FP2"
+            autocomplete="off"
+            maxlength="40"
+          />
+        </label>
+        <p id="name-error" class="error" hidden></p>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" data-back>Back</button>
+          <button type="button" class="btn primary" id="name-next-btn">
+            Next
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 4: Options -->
+      <section class="step" data-step="options" hidden>
+        <h2>Options</h2>
+        <p class="muted">
+          Sensible defaults — change later if needed.
+        </p>
+
+        <label class="toggle">
+          <input type="checkbox" id="opt-zones" checked />
+          <span class="toggle-body">
+            <span class="toggle-label">Expose per-zone occupancy sensors</span>
+            <span class="toggle-desc">
+              One HomeKit Occupancy Sensor per zone you've configured in the
+              Aqara Home app. Recommended.
+            </span>
+          </span>
+        </label>
+
+        <label class="toggle">
+          <input type="checkbox" id="opt-lux" checked />
+          <span class="toggle-body">
+            <span class="toggle-label">Expose light sensor</span>
+            <span class="toggle-desc">
+              Surfaces the FP2's ambient light reading as a HomeKit Light
+              Sensor service.
+            </span>
+          </span>
+        </label>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" data-back>Back</button>
+          <button type="button" class="btn primary" id="options-next-btn">
+            Next
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 5: Confirm -->
+      <section class="step" data-step="confirm" hidden>
+        <h2>Review and save</h2>
+        <p class="muted">
+          On save, this device will be added to your Homebridge config. The
+          plugin will pair with the FP2 on the next Homebridge restart.
+        </p>
+
+        <pre id="config-preview" class="preview" aria-label="Config preview"></pre>
+
+        <p id="save-error" class="error" hidden></p>
+
+        <div class="actions">
+          <button type="button" class="btn ghost" data-back>Back</button>
+          <button type="button" class="btn primary" id="save-btn">
+            Save device
+          </button>
+        </div>
+      </section>
+
+      <!-- Done -->
+      <section class="step" data-step="done" hidden>
+        <h2>✓ Device added</h2>
+        <p>
+          <strong id="done-name"></strong> has been written to your
+          Homebridge config. <strong>Restart Homebridge</strong> for the
+          plugin to pair with the FP2 and expose its services.
+        </p>
+        <div class="actions">
+          <button type="button" class="btn primary" id="add-another-btn">
+            Add another FP2
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="wizard.js"></script>
+  </body>
+</html>

@@ -26,11 +26,11 @@
               "description": "Shown in the Home app for the main accessory."
             },
             "host": {
-              "title": "IP Address",
+              "title": "FP2 identifier",
               "type": "string",
-              "format": "ipv4",
               "required": true,
-              "placeholder": "192.168.1.123"
+              "placeholder": "Presence-Sensor-FP2-A73D",
+              "description": "How the plugin finds your FP2. Accepts:\n• mDNS bonjour name like `Presence-Sensor-FP2-A73D` (recommended — stable across DHCP and factory resets)\n• mDNS hostname like `Presence-Sensor-FP2-A73D.local`\n• IPv4 address like `192.168.1.123` (only stable if you've reserved the DHCP lease)\n\nOnce the plugin has paired with the FP2, it also tracks the HAP device id and uses that to follow the FP2 across IP changes — but on first run, this field is the only way to find it."
             },
             "port": {
               "title": "HAP Port",
@@ -58,18 +58,6 @@
               "title": "Expose light sensor",
               "type": "boolean",
               "default": true
-            },
-            "exposeResetSwitch": {
-              "title": "Expose Reset Presence switch",
-              "type": "boolean",
-              "default": false,
-              "description": "Adds a momentary Switch that triggers the FP2's presence reset (analogous to the Aqara app's reset-presence button). Useful when the sensor is stuck showing presence."
-            },
-            "resetCharId": {
-              "title": "Reset characteristic id (advanced)",
-              "type": "string",
-              "pattern": "^[0-9]+\\.[0-9]+$",
-              "description": "Pin the writable characteristic that triggers reset, formatted as \"aid.iid\". Leave blank for auto-detect — the plugin logs its candidate at startup so you can verify or override."
             },
             "pollIntervalSeconds": {
               "title": "Poll interval (seconds)",

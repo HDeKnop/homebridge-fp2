@@ -30,7 +30,7 @@ export interface DiscoveredFp2 {
   configNumber: number;
 }
 
-interface HapServiceUp {
+export interface HapServiceUp {
   name?: string;
   address: string;
   allAddresses?: string[];
@@ -43,6 +43,48 @@ interface HapServiceUp {
 }
 
 /**
+ * Decide whether an mDNS-discovered HAP service matches a user's `host`
+ * identifier. Exported and pure so it can be exhaustively unit-tested.
+ *
+ * Match precedence:
+ *  1. Preferred HAP deviceId (from a stored pairing) — wins over everything
+ *     so we follow the FP2 across DHCP lease changes.
+ *  2. IP equality against `svc.address` or any `svc.allAddresses`.
+ *  3. mDNS bonjour name equality (with or without trailing dot).
+ *  4. `.local` hostname containment when the target ends in `.local`.
+ *
+ * `host` and `preferredDeviceId` may both be omitted, in which case nothing
+ * matches.
+ */
+export function matchesService(
+  svc: HapServiceUp,
+  host: string,
+  preferredDeviceId?: string | null,
+): boolean {
+  if (preferredDeviceId) {
+    const want = normalizeDeviceId(preferredDeviceId)?.toLowerCase();
+    if (want && svc.id?.toLowerCase() === want) return true;
+  }
+  const targetLower = host.toLowerCase();
+  const addresses = new Set([
+    svc.address?.toLowerCase(),
+    ...(svc.allAddresses ?? []).map((a) => a.toLowerCase()),
+  ].filter(Boolean) as string[]);
+  if (addresses.has(targetLower)) return true;
+  const nameLower = (svc.name ?? '').toLowerCase();
+  if (nameLower
+    && (nameLower === targetLower
+      || nameLower.replace(/\.$/, '') === targetLower.replace(/\.$/, ''))) {
+    return true;
+  }
+  if (targetLower.endsWith('.local') || targetLower.endsWith('.local.')) {
+    const stripped = targetLower.replace(/\.$/, '').replace(/\.local$/, '');
+    if (nameLower.includes(stripped)) return true;
+  }
+  return false;
+}
+
+/**
  * @param host    config-provided IP / hostname (matched first)
  * @param timeoutMs  how long to wait for the FP2 to surface
  * @param log     Homebridge logger
@@ -50,27 +92,11 @@ interface HapServiceUp {
  *   When provided, a matching id wins over the host match — letting us
  *   follow the FP2 across DHCP lease changes once we've paired with it.
  */
-/**
- * hap-controller's `AccessoryPairingID` is stored as hex-encoded ASCII
- * (e.g. `"33343a38463a43313a..."` → `"34:8F:C1:76:..."`). mDNS reports
- * the canonical colon form. Normalize so cross-source comparisons work.
- *
- * Idempotent: if the input is already in `XX:XX:...` form it's returned
- * verbatim. Returns null when the input is null/undefined.
- */
-export function normalizeDeviceId(id: string | null | undefined): string | null {
-  if (!id) return null;
-  // Already canonical?
-  if (id.includes(':')) return id;
-  // Even-length pure hex → decode
-  if (/^[0-9a-f]+$/i.test(id) && id.length % 2 === 0) {
-    try {
-      const decoded = Buffer.from(id, 'hex').toString('utf8');
-      if (decoded.includes(':')) return decoded;
-    } catch { /* noop */ }
-  }
-  return id;
-}
+// `normalizeDeviceId` lives in mappers.ts (leaf module) so pairing-store
+// can use it without circular deps; re-exported here for callers that
+// import it from the discovery surface area.
+export { normalizeDeviceId } from './mappers.js';
+import { normalizeDeviceId } from './mappers.js';
 
 export async function discoverFp2ByHost(
   host: string,
@@ -85,7 +111,6 @@ export async function discoverFp2ByHost(
   }
   const discovery = new IPDiscovery();
   const observed: HapServiceUp[] = [];
-  const targetLower = host.toLowerCase();
 
   return new Promise<DiscoveredFp2 | null>((resolve) => {
     let resolved = false;
@@ -105,25 +130,8 @@ export async function discoverFp2ByHost(
       resolve(result);
     };
 
-    const preferredIdLower = normalizeDeviceId(preferredDeviceId)?.toLowerCase();
-    const tryMatch = (svc: HapServiceUp): boolean => {
-      // Strongest signal: matching HAP deviceId from a stored pairing. This
-      // wins over IP/hostname so we survive DHCP lease changes.
-      if (preferredIdLower && svc.id?.toLowerCase() === preferredIdLower) return true;
-      const addresses = new Set([
-        svc.address?.toLowerCase(),
-        ...(svc.allAddresses ?? []).map((a) => a.toLowerCase()),
-      ].filter(Boolean) as string[]);
-      const nameLower = (svc.name ?? '').toLowerCase();
-      // Match against IP equality, hostname (incl. .local. suffix), or name.
-      if (addresses.has(targetLower)) return true;
-      if (nameLower && (nameLower === targetLower || nameLower.replace(/\.$/, '') === targetLower.replace(/\.$/, ''))) return true;
-      if (targetLower.endsWith('.local') || targetLower.endsWith('.local.')) {
-        const stripped = targetLower.replace(/\.$/, '').replace(/\.local$/, '');
-        if (nameLower.includes(stripped)) return true;
-      }
-      return false;
-    };
+    const tryMatch = (svc: HapServiceUp): boolean =>
+      matchesService(svc, host, preferredDeviceId);
 
     const onUp = (svc: HapServiceUp) => {
       observed.push(svc);

@@ -7,7 +7,6 @@ import { discoverFp2ByHost } from './discovery.js';
 import { PairingStore } from './pairing-store.js';
 import {
   type Accessories,
-  detectResetCharacteristic,
   parseAccessories,
 } from './parser.js';
 import {
@@ -59,8 +58,6 @@ export class Fp2HapClient extends EventEmitter {
   private closed = false;
   private primaryOccupancyIid: number | null = null;
   private lightLevelIid: number | null = null;
-  /** Discovered or configured reset trigger, if any. Format `"aid.iid"`. */
-  private resetCharId: string | null = null;
   /** When set, scheduleReconnect becomes a no-op — used for terminal config
    *  errors (wrong pin, rate-limit, already-paired) so we don't burn through
    *  the FP2's pair-setup attempt budget. Cleared on user-driven retry (eg.
@@ -102,41 +99,6 @@ export class Fp2HapClient extends EventEmitter {
     return this.hardware;
   }
 
-  getResetCharId(): string | null {
-    return this.resetCharId;
-  }
-
-  /**
-   * This was a fun idea but there seems to be no "reset"
-   * Trigger the FP2's "reset presence" command by writing `true` (then `false`)
-   * to the configured / auto-detected writable characteristic. No-op with a
-   * warning if no candidate is known.
-   
-  async triggerPresenceReset(): Promise<void> {
-    if (!this.client) throw new Error('not connected');
-    const id = this.resetCharId;
-    if (!id) {
-      this.log.warn(`[${this.cfg.name}] reset requested but no candidate characteristic detected; ` +
-        'set resetCharId in config or open an issue with your FP2 firmware version');
-      return;
-    }
-    this.log.info(`[${this.cfg.name}] writing reset trigger to ${id}`);
-    try {
-      await this.client.setCharacteristics({ [id]: true });
-    } catch (err) {
-      const msg = (err as Error).message;
-      // Some firmwares expect 1 instead of true, or want a falling edge.
-      this.log.debug(`[${this.cfg.name}] reset write (true) failed: ${msg} — retrying with value 1`);
-      try {
-        await this.client.setCharacteristics({ [id]: 1 });
-      } catch (err2) {
-        throw new Error(`reset write to ${id} failed: ${(err2 as Error).message}`);
-      }
-    }
-  }
-**/
-
-
   /** Establish (or re-establish) the HAP session. Auto-pairs on first use,
    *  recovers from stale pairings by re-running pair-setup. */
   async connect(): Promise<void> {
@@ -155,20 +117,34 @@ export class Fp2HapClient extends EventEmitter {
   /** Inner connect — optionally clears stale credentials and re-pairs. */
   private async connectWithRecovery(allowRepair: boolean): Promise<void> {
     const { HttpClient } = await import('hap-controller');
-    const stored = await this.store.load(this.cfg.host);
+
+    // First try to load a pairing by the current config host. Discovery uses
+    // its deviceId (if found) to prefer the matching mDNS service.
+    let stored = await this.store.load(this.cfg.host);
 
     // Always discover via mDNS on connect — HAP accessories advertise on
     // ephemeral ports, so we cannot hard-code one and the port may even
     // change after a reboot. mDNS is also how we get the canonical deviceId.
-    // When we have stored pairing data, pass the deviceId so discovery can
-    // follow the FP2 across DHCP lease changes (i.e. find it even if the
-    // IP in config no longer matches).
     const discovered = await discoverFp2ByHost(
       this.cfg.host,
       DISCOVERY_TIMEOUT_MS,
       this.log,
       stored?.deviceId,
     );
+
+    // If the host-based lookup missed but discovery did surface the FP2,
+    // try matching a previous pairing by deviceId. This handles the case
+    // where the user changed `host` in config (IP ↔ mDNS name) but the
+    // FP2 itself is the same device we paired with before.
+    if (!stored && discovered) {
+      stored = await this.store.findByDeviceId(discovered.deviceId);
+      if (stored) {
+        this.log.info(
+          `[${this.cfg.name}] recovered pairing for ${discovered.deviceId} from prior host "${stored.host}" ` +
+          `(current config host is "${this.cfg.host}")`,
+        );
+      }
+    }
     if (discovered) {
       this.log.info(
         `[${this.cfg.name}] discovered FP2: id=${discovered.deviceId} port=${discovered.port} model=${discovered.model} sf=${discovered.statusFlags}`,
@@ -407,23 +383,6 @@ export class Fp2HapClient extends EventEmitter {
     if (parsed.model) this.model = parsed.model;
     if (parsed.firmware) this.firmware = parsed.firmware;
     if (parsed.hardware) this.hardware = parsed.hardware;
-
-    const detection = detectResetCharacteristic(payload, this.cfg.resetCharId);
-    this.resetCharId = detection.chosen?.id ?? null;
-    if (detection.chosen?.reason === 'config-override') {
-      this.log.info(`[${this.cfg.name}] reset characteristic pinned by config: ${detection.chosen.id}`);
-    } else if (detection.chosen) {
-      this.log.info(
-        `[${this.cfg.name}] reset characteristic detected at ${detection.chosen.id} ` +
-        `(${detection.chosen.reason}: "${detection.chosen.description}"). ` +
-        'Override via resetCharId in config if this is wrong.',
-      );
-      if (detection.candidates.length > 1) {
-        this.log.debug(`[${this.cfg.name}] other candidates: ${detection.candidates.slice(1).map(c => c.id).join(', ')}`);
-      }
-    } else {
-      this.log.debug(`[${this.cfg.name}] no reset-presence candidate detected`);
-    }
   }
 
   private applyCharacteristicUpdate(aid: number, iid: number, rawValue: unknown): void {
