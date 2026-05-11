@@ -4,6 +4,14 @@ coverage/
 *.log
 .DS_Store
 .env
-.fp2-persist/
+
+# Homebridge runtime state — if anyone ever runs `homebridge -U .` from inside
+# this repo, none of these should ever be committed. They contain credentials
+# (HAP long-term private keys, paired controller LTPKs) and per-device cache.
 .homebridge/
+homebridge-fp2/
+persist/
+accessories/
+*.tgz
+
 
