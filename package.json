@@ -16,11 +16,11 @@
   "type": "module",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=18.20.0",
-    "homebridge": "^1.8.0 || ^2.0.0 || ^2.0.0-beta.0"
+    "node": "^18.20.0 || ^20.0.0 || ^22.0.0 || ^24.0.0",
+    "homebridge": "^1.8.0 || ^2.0.0"
   },
   "peerDependencies": {
-    "homebridge": "^1.8.0 || ^2.0.0 || ^2.0.0-beta.0"
+    "homebridge": "^1.8.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "homebridge": {

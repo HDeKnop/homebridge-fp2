@@ -42,10 +42,41 @@ interface HapServiceUp {
   'c#': number;
 }
 
+/**
+ * @param host    config-provided IP / hostname (matched first)
+ * @param timeoutMs  how long to wait for the FP2 to surface
+ * @param log     Homebridge logger
+ * @param preferredDeviceId  optional HAP deviceId (e.g. `"34:8F:C1:76:9A:50"`).
+ *   When provided, a matching id wins over the host match — letting us
+ *   follow the FP2 across DHCP lease changes once we've paired with it.
+ */
+/**
+ * hap-controller's `AccessoryPairingID` is stored as hex-encoded ASCII
+ * (e.g. `"33343a38463a43313a..."` → `"34:8F:C1:76:..."`). mDNS reports
+ * the canonical colon form. Normalize so cross-source comparisons work.
+ *
+ * Idempotent: if the input is already in `XX:XX:...` form it's returned
+ * verbatim. Returns null when the input is null/undefined.
+ */
+export function normalizeDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  // Already canonical?
+  if (id.includes(':')) return id;
+  // Even-length pure hex → decode
+  if (/^[0-9a-f]+$/i.test(id) && id.length % 2 === 0) {
+    try {
+      const decoded = Buffer.from(id, 'hex').toString('utf8');
+      if (decoded.includes(':')) return decoded;
+    } catch { /* noop */ }
+  }
+  return id;
+}
+
 export async function discoverFp2ByHost(
   host: string,
   timeoutMs: number,
   log: Logging,
+  preferredDeviceId?: string,
 ): Promise<DiscoveredFp2 | null> {
   const { IPDiscovery } = await import('hap-controller');
   if (!IPDiscovery) {
@@ -74,7 +105,11 @@ export async function discoverFp2ByHost(
       resolve(result);
     };
 
+    const preferredIdLower = normalizeDeviceId(preferredDeviceId)?.toLowerCase();
     const tryMatch = (svc: HapServiceUp): boolean => {
+      // Strongest signal: matching HAP deviceId from a stored pairing. This
+      // wins over IP/hostname so we survive DHCP lease changes.
+      if (preferredIdLower && svc.id?.toLowerCase() === preferredIdLower) return true;
       const addresses = new Set([
         svc.address?.toLowerCase(),
         ...(svc.allAddresses ?? []).map((a) => a.toLowerCase()),

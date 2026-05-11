@@ -9,7 +9,7 @@ import {
   makeLastActivationCharacteristic,
   nowEveSeconds,
 } from './eve-characteristics.js';
-import { toHapLux, toHapOccupancy } from './mappers.js';
+import { sanitizeHapName, toHapLux, toHapOccupancy } from './mappers.js';
 import { RESET_SWITCH_PULSE_MS } from './settings.js';
 import type { Fp2DeviceConfig, Fp2State, ZoneState } from './types.js';
 
@@ -61,6 +61,7 @@ export class Fp2Accessory {
     const C = this.platform.Characteristic;
     const info = this.accessory.getService(this.platform.Service.AccessoryInformation)
       ?? this.accessory.addService(this.platform.Service.AccessoryInformation);
+    info.setCharacteristic(C.Name, sanitizeHapName(this.cfg.name, 'FP2'));
     info.setCharacteristic(C.Manufacturer, 'Aqara');
     info.setCharacteristic(C.Model, this.client.getModel() ?? 'Presence Sensor FP2');
     // Serial: the HAP-discovered Aqara serial when available, else FP2's MAC-
@@ -101,9 +102,10 @@ export class Fp2Accessory {
     const subtype = 'main';
     const existing = this.accessory.getServiceById(S.OccupancySensor, subtype)
       ?? this.accessory.getService(S.OccupancySensor);
-    const service = existing ?? this.accessory.addService(S.OccupancySensor, this.cfg.name, subtype);
+    const safeName = sanitizeHapName(this.cfg.name, 'FP2');
+    const service = existing ?? this.accessory.addService(S.OccupancySensor, safeName, subtype);
 
-    service.setCharacteristic(C.Name, this.cfg.name);
+    service.setCharacteristic(C.Name, safeName);
     service.getCharacteristic(C.OccupancyDetected)
       .onGet(() => toHapOccupancy(this.client.getState().occupancy));
     service.getCharacteristic(C.StatusActive)
@@ -128,7 +130,10 @@ export class Fp2Accessory {
     const S = this.platform.Service;
     const C = this.platform.Characteristic;
     const existing = this.accessory.getService(S.LightSensor);
-    const service = existing ?? this.accessory.addService(S.LightSensor, `${this.cfg.name} Light`);
+    const service = existing ?? this.accessory.addService(
+      S.LightSensor,
+      sanitizeHapName(`${this.cfg.name} Light`, 'FP2 Light'),
+    );
     service.getCharacteristic(C.CurrentAmbientLightLevel)
       .onGet(() => toHapLux(this.client.getState().lightLevel));
     return service;
@@ -149,12 +154,9 @@ export class Fp2Accessory {
     const C = this.platform.Characteristic;
     const subtype = 'reset-presence';
     const existing = this.accessory.getServiceById(S.Switch, subtype);
-    const service = existing ?? this.accessory.addService(
-      S.Switch,
-      `${this.cfg.name} Reset Presence`,
-      subtype,
-    );
-    service.setCharacteristic(C.Name, `${this.cfg.name} Reset Presence`);
+    const switchName = sanitizeHapName(`${this.cfg.name} Reset Presence`, 'Reset Presence');
+    const service = existing ?? this.accessory.addService(S.Switch, switchName, subtype);
+    service.setCharacteristic(C.Name, switchName);
     service.getCharacteristic(C.On)
       .onGet(() => false)
       .onSet(async (value) => {
@@ -227,12 +229,9 @@ export class Fp2Accessory {
       if (!service) {
         const existing = this.accessory.getServiceById(S.OccupancySensor, slug);
         if (!existing) structuralChange = true;
-        service = existing ?? this.accessory.addService(
-          S.OccupancySensor,
-          this.zoneDisplayName(zone.name),
-          slug,
-        );
-        service.setCharacteristic(C.Name, this.zoneDisplayName(zone.name));
+        const zoneName = sanitizeHapName(this.zoneDisplayName(zone.name), 'Zone');
+        service = existing ?? this.accessory.addService(S.OccupancySensor, zoneName, slug);
+        service.setCharacteristic(C.Name, zoneName);
         service.getCharacteristic(C.OccupancyDetected)
           .onGet(() => {
             const live = this.client.getState().zones.get(slug);

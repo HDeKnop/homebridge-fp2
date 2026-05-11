@@ -19,12 +19,10 @@ HomeKit services through HAP-over-WiFi.
 - **Main Occupancy** — primary mmWave detection
 - **Per-zone Occupancy** — one HomeKit sensor per zone configured in the Aqara app
 - **Light Sensor** — ambient lux (toggleable)
-- **Reset Presence switch** — momentary HomeKit Switch that clears stuck presence (opt-in)
 - **Real-time** — HAP event subscriptions (sub-second updates)
 - **mDNS discovery** — locates the FP2's HAP identity automatically; pin from config drives pair-setup
 - **Stale-credential recovery** — detects re-paired / reset FP2s and re-pairs without manual cleanup
 - **Reachability** — `StatusActive` characteristic reflects connection health
-- **Eve Last Activation** — for "no motion in 10 min" automations in Eve / Controller
 - **Multi-device** — manage any number of FP2s from one config
 - **Cloud-free** — no Aqara cloud, no Matter bridge needed
 
@@ -98,32 +96,9 @@ Or use the **Homebridge Config UI** — the schema renders a form.
 | `pin` | string | — | Setup pin `###-##-###` (required, first run only) |
 | `exposeZones` | bool | `true` | Create per-zone Occupancy sensors |
 | `exposeLightSensor` | bool | `true` | Create Light Sensor service |
-| `exposeResetSwitch` | bool | `false` | Add a momentary Reset Presence Switch (see below) |
-| `resetCharId` | string | auto | Override the auto-detected reset trigger as `"aid.iid"` |
 | `pollIntervalSeconds` | int | `30` | Fallback poll. Real-time uses HAP events |
 | `excludedZones` | string[] | `[]` | Zone names (Aqara app) to skip |
 | `debug` | bool | `false` | Verbose logs |
-
-### Reset Presence switch
-
-Set `exposeResetSwitch: true` to add a momentary HomeKit **Switch** named
-"`<your name>` Reset Presence". Toggling it on writes the FP2's
-reset trigger and the switch auto-flips back off ~1 second later. Use it when
-the FP2 is stuck reporting presence (e.g. after picking up a moving object as
-a person).
-
-The plugin **auto-detects** the trigger characteristic by scanning the FP2's
-HAP service tree for writable Boolean characteristics that look like reset
-controls — it logs its choice at startup, e.g.:
-
-```
-[Living Room FP2] reset characteristic detected at 1.42 (description-match: "reset presence")
-```
-
-If auto-detection picks the wrong one, override with `resetCharId: "1.42"` in
-config and restart Homebridge. Different FP2 firmware revisions expose this
-differently — file an issue with your firmware version if your FP2 has no
-detectable candidate.
 
 ## Configuring zones
 
@@ -160,10 +135,23 @@ attempts). Check Homebridge logs for the underlying error.
 Delete `~/.homebridge/homebridge-fp2/{ip}.json`, reset the FP2, and
 restart Homebridge. The next start will re-pair.
 
+## Potential next steps
+
+These features are not currently implemented but are under consideration:
+
+- **Reset Presence switch** — a momentary HomeKit Switch that writes the FP2's reset trigger to clear stuck presence. The plugin already auto-detects the trigger characteristic in the HAP service tree; exposing it as a HomeKit tile is the remaining step.
+- **Eve Last Activation** — adds an Eve-compatible "Last Activation" timestamp to the occupancy sensor, enabling "no motion in 10 minutes" automations in Eve and Controller for HomeKit.
+
+If either of these would be useful to you, please open an issue or comment on an existing one.
+
 ## Architecture
 
 See [DESIGN.md](DESIGN.md) for the architecture, state model, and design
 trade-offs.
+
+## Acknowledgements
+
+The approach of talking directly to the FP2 over HAP-over-IP — including the relevant characteristic UUIDs and the pair-method selection based on the FP2's mDNS feature flags — was informed by [ebaauw/fp2-proxy](https://github.com/ebaauw/fp2-proxy) by Erik Baauw. That project proxies the FP2 to a deCONZ gateway and has no code overlap with this plugin, but its exploration of the FP2's HAP structure was a valuable reference.
 
 ## License
 

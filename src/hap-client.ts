@@ -107,10 +107,11 @@ export class Fp2HapClient extends EventEmitter {
   }
 
   /**
+   * This was a fun idea but there seems to be no "reset"
    * Trigger the FP2's "reset presence" command by writing `true` (then `false`)
    * to the configured / auto-detected writable characteristic. No-op with a
    * warning if no candidate is known.
-   */
+   
   async triggerPresenceReset(): Promise<void> {
     if (!this.client) throw new Error('not connected');
     const id = this.resetCharId;
@@ -133,6 +134,8 @@ export class Fp2HapClient extends EventEmitter {
       }
     }
   }
+**/
+
 
   /** Establish (or re-establish) the HAP session. Auto-pairs on first use,
    *  recovers from stale pairings by re-running pair-setup. */
@@ -157,7 +160,15 @@ export class Fp2HapClient extends EventEmitter {
     // Always discover via mDNS on connect — HAP accessories advertise on
     // ephemeral ports, so we cannot hard-code one and the port may even
     // change after a reboot. mDNS is also how we get the canonical deviceId.
-    const discovered = await discoverFp2ByHost(this.cfg.host, DISCOVERY_TIMEOUT_MS, this.log);
+    // When we have stored pairing data, pass the deviceId so discovery can
+    // follow the FP2 across DHCP lease changes (i.e. find it even if the
+    // IP in config no longer matches).
+    const discovered = await discoverFp2ByHost(
+      this.cfg.host,
+      DISCOVERY_TIMEOUT_MS,
+      this.log,
+      stored?.deviceId,
+    );
     if (discovered) {
       this.log.info(
         `[${this.cfg.name}] discovered FP2: id=${discovered.deviceId} port=${discovered.port} model=${discovered.model} sf=${discovered.statusFlags}`,
@@ -180,22 +191,35 @@ export class Fp2HapClient extends EventEmitter {
     let pairing: PairingData;
     let deviceId: string;
 
+    // The address we actually open the TCP connection on: prefer the live
+    // mDNS-reported one (follows DHCP changes), fall back to config host,
+    // then to the stored host (last-known-good).
+    const address = discovered?.address ?? this.cfg.host ?? stored?.host;
+    if (!address) {
+      throw new Error(`cannot connect: no address available (config host="${this.cfg.host}")`);
+    }
+    if (discovered && address !== this.cfg.host) {
+      this.log.info(
+        `[${this.cfg.name}] FP2 IP changed: config=${this.cfg.host} → live=${discovered.address} (DHCP lease)`,
+      );
+    }
+
     if (stored) {
       deviceId = stored.deviceId;
       pairing = stored.pairing;
-      this.log.debug(`[${this.cfg.name}] using stored pairing for ${deviceId} on port ${port}`);
+      this.log.debug(`[${this.cfg.name}] using stored pairing for ${deviceId} on ${address}:${port}`);
 
       // Validate by attempting getAccessories. If pair-verify fails the
       // pairing is stale (FP2 was reset/re-paired elsewhere) and we recover.
-      this.client = new HttpClient(deviceId, this.cfg.host, port, pairing, {
+      this.client = new HttpClient(deviceId, address, port, pairing, {
         usePersistentConnections: true,
       });
       try {
         const accessories = await this.client.getAccessories();
         this.parseAccessories(accessories);
-        // Refresh stored port if mDNS surfaced a new one.
-        if (discovered && discovered.port !== stored.port) {
-          await this.store.save({ ...stored, port: discovered.port });
+        // Refresh stored host/port whenever mDNS surfaces a fresh value.
+        if (discovered && (discovered.port !== stored.port || discovered.address !== stored.host)) {
+          await this.store.save({ ...stored, host: discovered.address, port: discovered.port });
         }
       } catch (err) {
         const msg = (err as Error).message ?? '';
@@ -239,8 +263,8 @@ export class Fp2HapClient extends EventEmitter {
         `based on ff=${discovered?.featureFlags ?? 'unknown'}`,
       );
 
-      this.log.info(`[${this.cfg.name}] pairing with FP2 at ${this.cfg.host}:${port}…`);
-      const setupClient = new HttpClient(deviceId, this.cfg.host, port);
+      this.log.info(`[${this.cfg.name}] pairing with FP2 at ${address}:${port}…`);
+      const setupClient = new HttpClient(deviceId, address, port);
       try {
         await setupClient.pairSetup(this.cfg.pin, pairMethod);
       } catch (err) {
@@ -275,14 +299,14 @@ export class Fp2HapClient extends EventEmitter {
       deviceId = pairing.AccessoryPairingID;
       await this.store.save({
         deviceId,
-        host: this.cfg.host,
+        host: address,
         port,
         pairing,
         pairedAt: new Date().toISOString(),
       });
       this.log.info(`[${this.cfg.name}] paired successfully (deviceId=${deviceId})`);
 
-      this.client = new HttpClient(deviceId, this.cfg.host, port, pairing, {
+      this.client = new HttpClient(deviceId, address, port, pairing, {
         usePersistentConnections: true,
       });
       const accessories = await this.client.getAccessories();

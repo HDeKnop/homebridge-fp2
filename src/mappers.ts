@@ -25,3 +25,25 @@ export function toHapLux(lux: number | null | undefined): number {
   if (lux > LUX_MAX) return LUX_MAX;
   return lux;
 }
+
+/**
+ * Coerce a string into a HAP-2.0-compliant Name characteristic value.
+ *
+ * HAP-NodeJS 2.0 strictly validates names: "only alphanumeric, space, and
+ * apostrophe characters. Ensure it starts and ends with an alphabetic or
+ * numeric character". Invalid names produce warnings in v2 and "may prevent
+ * the accessory from being added in the Home App or cause unresponsiveness".
+ *
+ * This helper replaces invalid characters (parentheses, dashes, periods, etc.)
+ * with spaces, collapses runs of whitespace, and strips leading/trailing
+ * non-alphanumerics. Returns a safe default if the input collapses to empty.
+ */
+export function sanitizeHapName(raw: string, fallback = 'Sensor'): string {
+  const cleaned = raw
+    .replace(/[^a-zA-Z0-9 ']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[^a-zA-Z0-9]+/, '')
+    .replace(/[^a-zA-Z0-9]+$/, '');
+  return cleaned || fallback;
+}

@@ -12,6 +12,7 @@ export default defineConfig({
         'src/parser.ts',
         'src/mappers.ts',
         'src/pairing-store.ts',
+        'src/discovery.ts',
       ],
       thresholds: {
         statements: 80,

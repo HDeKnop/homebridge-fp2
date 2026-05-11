@@ -12,6 +12,7 @@ import type {
 
 import { Fp2Accessory } from './accessory.js';
 import { Fp2HapClient } from './hap-client.js';
+import { sanitizeHapName } from './mappers.js';
 import { PairingStore } from './pairing-store.js';
 import {
   DEFAULT_POLL_SECONDS,
@@ -87,9 +88,13 @@ export class FP2Platform implements DynamicPlatformPlugin {
       const uuid = this.api.hap.uuid.generate(`fp2:${d.host}`);
       desiredUuids.add(uuid);
 
+      // HAP-NodeJS 2.0 validates accessory names strictly (alphanumeric +
+      // space + apostrophe only). Sanitize at the source so cached
+      // accessories don't get persisted with invalid displayName values.
+      const safeName = sanitizeHapName(d.name, 'FP2');
       const accessory = this.cachedAccessories.get(uuid)
-        ?? new this.api.platformAccessory(d.name, uuid, this.api.hap.Categories.SENSOR);
-      accessory.displayName = d.name;
+        ?? new this.api.platformAccessory(safeName, uuid, this.api.hap.Categories.SENSOR);
+      accessory.displayName = safeName;
       accessory.context.host = d.host;
       accessory.context.name = d.name;
 
