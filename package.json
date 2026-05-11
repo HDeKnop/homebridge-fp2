@@ -4,6 +4,15 @@
   "version": "0.1.0",
   "description": "Homebridge plugin for the Aqara Presence Sensor FP2 — exposes the main occupancy sensor, light level, and per-zone occupancy via HAP-over-WiFi.",
   "license": "MIT",
+  "author": "Herman de Knop",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HDeKnop/homebridge-fp2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HDeKnop/homebridge-fp2/issues"
+  },
+  "homepage": "https://github.com/HDeKnop/homebridge-fp2#readme",
   "type": "module",
   "main": "dist/index.js",
   "engines": {

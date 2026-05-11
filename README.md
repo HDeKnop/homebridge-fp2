@@ -1,5 +1,10 @@
 # homebridge-fp2
 
+[![CI](https://github.com/HDeKnop/homebridge-fp2/actions/workflows/ci.yml/badge.svg)](https://github.com/HDeKnop/homebridge-fp2/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Homebridge](https://img.shields.io/badge/Homebridge-1.8%20%7C%202.0-blue)](https://homebridge.io)
+[![Node](https://img.shields.io/badge/node-%3E%3D18.20-brightgreen)](package.json)
+
 Homebridge plugin for the **Aqara Presence Sensor FP2**. Surfaces the
 mmWave presence detection, light level, and per-zone occupancy as native
 HomeKit services through HAP-over-WiFi.
