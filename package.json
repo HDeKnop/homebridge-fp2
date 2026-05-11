@@ -1,0 +1,59 @@
+{
+  "displayName": "Homebridge Aqara FP2",
+  "name": "homebridge-fp2",
+  "version": "0.1.0",
+  "description": "Homebridge plugin for the Aqara Presence Sensor FP2 — exposes the main occupancy sensor, light level, and per-zone occupancy via HAP-over-WiFi.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18.20.0",
+    "homebridge": "^1.8.0 || ^2.0.0 || ^2.0.0-beta.0"
+  },
+  "peerDependencies": {
+    "homebridge": "^1.8.0 || ^2.0.0 || ^2.0.0-beta.0"
+  },
+  "peerDependenciesMeta": {
+    "homebridge": {
+      "optional": false
+    }
+  },
+  "files": [
+    "dist",
+    "config.schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rimraf dist && tsc",
+    "lint": "eslint src --max-warnings=0",
+    "watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run lint && npm test && npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "aqara",
+    "fp2",
+    "presence",
+    "occupancy",
+    "mmwave",
+    "hap"
+  ],
+  "dependencies": {
+    "hap-controller": "^0.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^8.57.0",
+    "homebridge": "^1.8.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,130 @@
+import { join } from 'node:path';
+
+import type {
+  API,
+  Characteristic,
+  DynamicPlatformPlugin,
+  Logging,
+  PlatformAccessory,
+  PlatformConfig,
+  Service,
+} from 'homebridge';
+
+import { Fp2Accessory } from './accessory.js';
+import { Fp2HapClient } from './hap-client.js';
+import { PairingStore } from './pairing-store.js';
+import {
+  DEFAULT_POLL_SECONDS,
+  PLATFORM_NAME,
+  PLUGIN_NAME,
+  STORAGE_SUBDIR,
+} from './settings.js';
+import type {
+  Fp2DeviceConfig,
+  Fp2PlatformConfig,
+} from './types.js';
+
+interface ManagedDevice {
+  cfg: Fp2DeviceConfig;
+  client: Fp2HapClient;
+  accessory: PlatformAccessory;
+  handler: Fp2Accessory;
+}
+
+export class FP2Platform implements DynamicPlatformPlugin {
+  public readonly Service: typeof Service;
+  public readonly Characteristic: typeof Characteristic;
+  public readonly cachedAccessories = new Map<string, PlatformAccessory>();
+  private readonly devices: ManagedDevice[] = [];
+  private readonly pairingStore: PairingStore;
+
+  constructor(
+    public readonly log: Logging,
+    public readonly config: PlatformConfig,
+    public readonly api: API,
+  ) {
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
+    this.pairingStore = new PairingStore(join(api.user.storagePath(), STORAGE_SUBDIR));
+
+    this.api.on('didFinishLaunching', () => {
+      void this.discoverDevices();
+    });
+    this.api.on('shutdown', () => {
+      void this.shutdown();
+    });
+  }
+
+  configureAccessory(accessory: PlatformAccessory): void {
+    this.log.debug(`restoring cached accessory: ${accessory.displayName} (${accessory.UUID})`);
+    this.cachedAccessories.set(accessory.UUID, accessory);
+  }
+
+  private validateDevice(d: Fp2DeviceConfig): string | null {
+    if (!d.name) return 'missing name';
+    if (!d.host) return 'missing host';
+    if (!d.pin) return 'missing pin';
+    if (!/^\d{3}-\d{2}-\d{3}$/.test(d.pin)) return `pin "${d.pin}" must be formatted as ###-##-###`;
+    return null;
+  }
+
+  private async discoverDevices(): Promise<void> {
+    const cfg = this.config as Fp2PlatformConfig;
+    const devices = Array.isArray(cfg.devices) ? cfg.devices : [];
+    if (devices.length === 0) {
+      this.log.warn('No FP2 devices configured. Add a "devices" array to the AqaraFP2 platform config.');
+      return;
+    }
+
+    const desiredUuids = new Set<string>();
+
+    for (const d of devices) {
+      const issue = this.validateDevice(d);
+      if (issue) {
+        this.log.error(`Skipping FP2 "${d.name ?? '<unnamed>'}": ${issue}`);
+        continue;
+      }
+      const uuid = this.api.hap.uuid.generate(`fp2:${d.host}`);
+      desiredUuids.add(uuid);
+
+      const accessory = this.cachedAccessories.get(uuid)
+        ?? new this.api.platformAccessory(d.name, uuid, this.api.hap.Categories.SENSOR);
+      accessory.displayName = d.name;
+      accessory.context.host = d.host;
+      accessory.context.name = d.name;
+
+      const client = new Fp2HapClient(d, this.pairingStore, this.log);
+      const handler = new Fp2Accessory(this, accessory, client, d);
+
+      if (this.cachedAccessories.has(uuid)) {
+        this.api.updatePlatformAccessories([accessory]);
+      } else {
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.cachedAccessories.set(uuid, accessory);
+        this.log.info(`registered new FP2 accessory "${d.name}"`);
+      }
+
+      this.devices.push({ cfg: d, client, accessory, handler });
+
+      // Kick off connection. We deliberately do not await — Homebridge should
+      // continue starting up even if a single FP2 is offline.
+      void client.connect().then(() => {
+        client.startPolling(d.pollIntervalSeconds ?? DEFAULT_POLL_SECONDS);
+      });
+    }
+
+    // Prune cached accessories no longer in config.
+    for (const [uuid, accessory] of this.cachedAccessories) {
+      if (!desiredUuids.has(uuid)) {
+        this.log.info(`removing orphaned cached accessory "${accessory.displayName}"`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.cachedAccessories.delete(uuid);
+      }
+    }
+  }
+
+  private async shutdown(): Promise<void> {
+    this.log.info('shutting down FP2 clients');
+    await Promise.all(this.devices.map((d) => d.client.close()));
+  }
+}

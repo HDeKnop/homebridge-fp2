@@ -1,0 +1,98 @@
+{
+  "pluginAlias": "AqaraFP2",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Homebridge plugin for the Aqara Presence Sensor FP2. Exposes the main occupancy, light level, and per-zone occupancy services via HAP-over-WiFi. Requires the FP2 reset (10s long-press on its button) to obtain a fresh setup pin.",
+  "footerDisplay": "For setup, troubleshooting, and zone configuration see [the README](https://github.com/hermandeknop/homebridge-fp2#readme).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "AqaraFP2",
+        "required": true
+      },
+      "devices": {
+        "title": "FP2 Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Display Name",
+              "type": "string",
+              "required": true,
+              "description": "Shown in the Home app for the main accessory."
+            },
+            "host": {
+              "title": "IP Address",
+              "type": "string",
+              "format": "ipv4",
+              "required": true,
+              "placeholder": "192.168.1.123"
+            },
+            "port": {
+              "title": "HAP Port",
+              "type": "integer",
+              "default": 80,
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "HAP-over-IP port. The FP2 advertises this via mDNS; usually it does not need to change."
+            },
+            "pin": {
+              "title": "Setup Pin",
+              "type": "string",
+              "required": true,
+              "pattern": "^[0-9]{3}-[0-9]{2}-[0-9]{3}$",
+              "placeholder": "123-45-678",
+              "description": "8-digit HAP setup pin formatted as ###-##-###. Reset the FP2 to obtain a fresh pin if it is already paired with an Apple Home."
+            },
+            "exposeZones": {
+              "title": "Expose individual zones",
+              "type": "boolean",
+              "default": true,
+              "description": "Create a separate Occupancy Sensor for each zone configured in the Aqara app."
+            },
+            "exposeLightSensor": {
+              "title": "Expose light sensor",
+              "type": "boolean",
+              "default": true
+            },
+            "exposeResetSwitch": {
+              "title": "Expose Reset Presence switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Adds a momentary Switch that triggers the FP2's presence reset (analogous to the Aqara app's reset-presence button). Useful when the sensor is stuck showing presence."
+            },
+            "resetCharId": {
+              "title": "Reset characteristic id (advanced)",
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+$",
+              "description": "Pin the writable characteristic that triggers reset, formatted as \"aid.iid\". Leave blank for auto-detect — the plugin logs its candidate at startup so you can verify or override."
+            },
+            "pollIntervalSeconds": {
+              "title": "Poll interval (seconds)",
+              "type": "integer",
+              "default": 30,
+              "minimum": 5,
+              "maximum": 600,
+              "description": "Fallback polling. Real-time updates use HAP event subscriptions; polling only runs as a safety net."
+            },
+            "excludedZones": {
+              "title": "Excluded zone names",
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Zone names (as configured in the Aqara app) to skip when creating per-zone Occupancy sensors."
+            },
+            "debug": {
+              "title": "Debug logging",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
