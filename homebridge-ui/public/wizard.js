@@ -309,17 +309,10 @@ function init() {
   runDiscover();
 }
 
-if (window.homebridge?.addEventListener) {
-  // Homebridge UI is ready already in most cases; the 'ready' listener
-  // ensures we don't try to call homebridge.request() too early.
+if (window.homebridge) {
   window.homebridge.addEventListener('ready', init);
-  // Fall through if 'ready' has already fired before this script attached.
-  setTimeout(() => {
-    if (!$$('.step').some((s) => !s.hidden)) init();
-  }, 200);
 } else {
-  // Running outside the Homebridge UI iframe (e.g. preview pane) — render
-  // the first step with stubbed data so the UI is still inspectable.
+  // Running outside the Homebridge UI iframe (e.g. browser preview).
   document.addEventListener('DOMContentLoaded', () => {
     show('discover');
     $('#discover-status').hidden = true;

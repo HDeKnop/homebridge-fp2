@@ -2,6 +2,8 @@
   "pluginAlias": "AqaraFP2",
   "pluginType": "platform",
   "singular": true,
+  "customUi": true,
+  "customUiPath": "./homebridge-ui",
   "headerDisplay": "Homebridge plugin for the Aqara Presence Sensor FP2. Exposes the main occupancy, light level, and per-zone occupancy services via HAP-over-WiFi. Requires the FP2 reset (10s long-press on its button) to obtain a fresh setup pin.",
   "footerDisplay": "For setup, troubleshooting, and zone configuration see [the README](https://github.com/hermandeknop/homebridge-fp2#readme).",
   "schema": {

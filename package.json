@@ -15,7 +15,6 @@
   "homepage": "https://github.com/HDeKnop/homebridge-fp2#readme",
   "type": "module",
   "main": "dist/index.js",
-  "customUiPath": "homebridge-ui",
   "engines": {
     "node": "^18.20.0 || ^20.0.0 || ^22.0.0 || ^24.0.0",
     "homebridge": "^1.8.0 || ^2.0.0"

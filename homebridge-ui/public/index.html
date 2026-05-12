@@ -1,23 +1,14 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Add an Aqara FP2</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <main id="app">
-      <header class="hdr">
-        <h1>Add an Aqara FP2</h1>
-        <ol class="steps" aria-label="Wizard steps">
-          <li data-step="discover">Discover</li>
-          <li data-step="pin">Pin</li>
-          <li data-step="name">Name</li>
-          <li data-step="options">Options</li>
-          <li data-step="confirm">Confirm</li>
-        </ol>
-      </header>
+<link rel="stylesheet" href="style.css">
+
+<nav aria-label="Setup progress">
+  <ol class="steps">
+    <li data-step="discover">Find device</li>
+    <li data-step="pin">Setup code</li>
+    <li data-step="name">Name</li>
+    <li data-step="options">Options</li>
+    <li data-step="confirm">Confirm</li>
+  </ol>
+</nav>
 
       <!-- Step 1: Discover -->
       <section class="step" data-step="discover" hidden>
@@ -206,8 +197,5 @@
           </button>
         </div>
       </section>
-    </main>
-
+    
     <script type="module" src="wizard.js"></script>
-  </body>
-</html>
