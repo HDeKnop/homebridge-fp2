@@ -181,10 +181,10 @@ function submitName() {
 
 /* ─── Step 4: Options ──────────────────────────────────────────────── */
 
-function submitOptions() {
+async function submitOptions() {
   state.options.exposeZones = $('#opt-zones').checked;
   state.options.exposeLightSensor = $('#opt-lux').checked;
-  renderConfirm();
+  await renderConfirm();
   show('confirm');
 }
 
@@ -208,8 +208,26 @@ function buildDeviceBlock() {
   return block;
 }
 
-function renderConfirm() {
-  $('#config-preview').textContent = JSON.stringify(buildDeviceBlock(), null, 2);
+async function renderConfirm() {
+  const block = buildDeviceBlock();
+  $('#config-preview').textContent = JSON.stringify(block, null, 2);
+
+  // Keep the host-level in-memory config current so the modal footer Save
+  // button is always safe to click at the confirm step.
+  const all = await homebridge.getPluginConfig();
+  let platform = (all ?? []).find((p) => p.platform === PLATFORM_NAME);
+  if (!platform) {
+    platform = { platform: PLATFORM_NAME, name: PLATFORM_NAME, devices: [] };
+    all.push(platform);
+  }
+  if (!Array.isArray(platform.devices)) platform.devices = [];
+  const existingIdx = platform.devices.findIndex((d) => d.host === block.host);
+  if (existingIdx >= 0) {
+    platform.devices[existingIdx] = { ...platform.devices[existingIdx], ...block };
+  } else {
+    platform.devices.push(block);
+  }
+  await homebridge.updatePluginConfig(all);
 }
 
 async function save() {
@@ -237,6 +255,7 @@ async function save() {
     await homebridge.updatePluginConfig(all);
     await homebridge.savePluginConfig();
 
+    homebridge.enableSaveButton();
     $('#done-name').textContent = block.name;
     show('done');
   } catch (err) {
@@ -305,6 +324,7 @@ function init() {
   // it doesn't clutter the discover-path UI.
   // (Implemented inline in the pin step's host field below if manual.)
 
+  homebridge.disableSaveButton();
   show('discover');
   runDiscover();
 }
