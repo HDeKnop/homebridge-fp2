@@ -16,9 +16,7 @@ export const EVE_EPOCH_OFFSET = 978_307_200;
  * expect. The runtime class extends `api.hap.Characteristic` (which has a
  * 3-arg constructor); we wrap it in a default-constructed subclass.
  */
-export function makeLastActivationCharacteristic(
-  api: API,
-): WithUUID<new () => Characteristic> {
+export function makeLastActivationCharacteristic(api: API): WithUUID<new () => Characteristic> {
   const Char = api.hap.Characteristic;
 
   class LastActivation extends Char {

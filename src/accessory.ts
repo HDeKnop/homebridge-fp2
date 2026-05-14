@@ -1,14 +1,8 @@
-import type {
-  PlatformAccessory,
-  Service,
-} from 'homebridge';
+import type { PlatformAccessory, Service } from 'homebridge';
 
 import type { FP2Platform } from './platform.js';
 import type { Fp2HapClient } from './hap-client.js';
-import {
-  makeLastActivationCharacteristic,
-  nowEveSeconds,
-} from './eve-characteristics.js';
+import { makeLastActivationCharacteristic, nowEveSeconds } from './eve-characteristics.js';
 import { sanitizeHapName, toHapLux, toHapOccupancy } from './mappers.js';
 import type { Fp2DeviceConfig, Fp2State, ZoneState } from './types.js';
 
@@ -26,7 +20,7 @@ export class Fp2Accessory {
     private readonly platform: FP2Platform,
     private readonly accessory: PlatformAccessory,
     private readonly client: Fp2HapClient,
-    private readonly cfg: Fp2DeviceConfig,
+    private readonly cfg: Fp2DeviceConfig
   ) {
     this.applyAccessoryInfo();
     this.mainOccupancyService = this.ensureMainOccupancyService();
@@ -44,28 +38,29 @@ export class Fp2Accessory {
     // Initial sync from current cached state (may be empty pre-connect).
     this.syncFromState(client.getState());
 
-    client.on('state', (state) => this.syncFromState(state));
+    client.on('state', state => this.syncFromState(state));
     client.on('connected', () => this.setStatusActive(true));
     client.on('disconnected', () => this.setStatusActive(false));
     // Without an 'error' listener, EventEmitter treats emit('error') as a throw
     // — that would crash Homebridge on every unreachable FP2. The HAP client
     // already logs at warn level, so this listener just absorbs the event.
-    client.on('error', () => { /* logged by Fp2HapClient */ });
+    client.on('error', () => {
+      /* logged by Fp2HapClient */
+    });
   }
 
   private applyAccessoryInfo(): void {
     const C = this.platform.Characteristic;
-    const info = this.accessory.getService(this.platform.Service.AccessoryInformation)
-      ?? this.accessory.addService(this.platform.Service.AccessoryInformation);
+    const info =
+      this.accessory.getService(this.platform.Service.AccessoryInformation) ??
+      this.accessory.addService(this.platform.Service.AccessoryInformation);
     info.setCharacteristic(C.Name, sanitizeHapName(this.cfg.name, 'FP2'));
     info.setCharacteristic(C.Manufacturer, 'Aqara');
     info.setCharacteristic(C.Model, this.client.getModel() ?? 'Presence Sensor FP2');
     // Serial: the HAP-discovered Aqara serial when available, else FP2's MAC-
     // derived deviceId, else fall back to host. Avoid sticking an IP in here
     // (some HomeKit validators flag IP-style serials).
-    const serial = this.client.getSerialNumber()
-      ?? this.client.getDeviceId()
-      ?? `fp2-${this.cfg.host.replace(/\./g, '-')}`;
+    const serial = this.client.getSerialNumber() ?? this.client.getDeviceId() ?? `fp2-${this.cfg.host.replace(/\./g, '-')}`;
     info.setCharacteristic(C.SerialNumber, serial);
     // FirmwareRevision must match /^\d+(\.\d+){0,2}$/. Apple Home marks the
     // whole accessory "No Response" when this is malformed (e.g. literal "0").
@@ -96,16 +91,13 @@ export class Fp2Accessory {
     const S = this.platform.Service;
     const C = this.platform.Characteristic;
     const subtype = 'main';
-    const existing = this.accessory.getServiceById(S.OccupancySensor, subtype)
-      ?? this.accessory.getService(S.OccupancySensor);
+    const existing = this.accessory.getServiceById(S.OccupancySensor, subtype) ?? this.accessory.getService(S.OccupancySensor);
     const safeName = sanitizeHapName(this.cfg.name, 'FP2');
     const service = existing ?? this.accessory.addService(S.OccupancySensor, safeName, subtype);
 
     service.setCharacteristic(C.Name, safeName);
-    service.getCharacteristic(C.OccupancyDetected)
-      .onGet(() => toHapOccupancy(this.client.getState().occupancy));
-    service.getCharacteristic(C.StatusActive)
-      .onGet(() => this.client.getState().reachable);
+    service.getCharacteristic(C.OccupancyDetected).onGet(() => toHapOccupancy(this.client.getState().occupancy));
+    service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
 
     // Eve "Last Activation" — added once per service lifetime. The
     // addOptionalCharacteristic typing wants the full class signature, but
@@ -116,8 +108,7 @@ export class Fp2Accessory {
     if (!service.testCharacteristic(LastActivationCls)) {
       service.addOptionalCharacteristic(LastActivationCls);
     }
-    service.getCharacteristic(LastActivation)
-      .onGet(() => this.lastActivationSeconds);
+    service.getCharacteristic(LastActivation).onGet(() => this.lastActivationSeconds);
 
     return service;
   }
@@ -126,12 +117,8 @@ export class Fp2Accessory {
     const S = this.platform.Service;
     const C = this.platform.Characteristic;
     const existing = this.accessory.getService(S.LightSensor);
-    const service = existing ?? this.accessory.addService(
-      S.LightSensor,
-      sanitizeHapName(`${this.cfg.name} Light`, 'FP2 Light'),
-    );
-    service.getCharacteristic(C.CurrentAmbientLightLevel)
-      .onGet(() => toHapLux(this.client.getState().lightLevel));
+    const service = existing ?? this.accessory.addService(S.LightSensor, sanitizeHapName(`${this.cfg.name} Light`, 'FP2 Light'));
+    service.getCharacteristic(C.CurrentAmbientLightLevel).onGet(() => toHapLux(this.client.getState().lightLevel));
     return service;
   }
 
@@ -167,15 +154,11 @@ export class Fp2Accessory {
     }
     this.lastOccupancy = state.occupancy;
 
-    this.mainOccupancyService
-      .updateCharacteristic(C.OccupancyDetected, toHapOccupancy(state.occupancy));
-    this.mainOccupancyService
-      .updateCharacteristic(C.StatusActive, state.reachable);
+    this.mainOccupancyService.updateCharacteristic(C.OccupancyDetected, toHapOccupancy(state.occupancy));
+    this.mainOccupancyService.updateCharacteristic(C.StatusActive, state.reachable);
     if (this.lightSensorService) {
-      this.lightSensorService
-        .updateCharacteristic(C.CurrentAmbientLightLevel, toHapLux(state.lightLevel));
-      this.lightSensorService
-        .updateCharacteristic(C.StatusActive, state.reachable);
+      this.lightSensorService.updateCharacteristic(C.CurrentAmbientLightLevel, toHapLux(state.lightLevel));
+      this.lightSensorService.updateCharacteristic(C.StatusActive, state.reachable);
     }
     if (this.cfg.exposeZones !== false) {
       this.reconcileZoneServices(state.zones);
@@ -206,13 +189,11 @@ export class Fp2Accessory {
         const zoneName = sanitizeHapName(this.zoneDisplayName(zone.name), 'Zone');
         service = existing ?? this.accessory.addService(S.OccupancySensor, zoneName, slug);
         service.setCharacteristic(C.Name, zoneName);
-        service.getCharacteristic(C.OccupancyDetected)
-          .onGet(() => {
-            const live = this.client.getState().zones.get(slug);
-            return toHapOccupancy(live?.occupancy ?? false);
-          });
-        service.getCharacteristic(C.StatusActive)
-          .onGet(() => this.client.getState().reachable);
+        service.getCharacteristic(C.OccupancyDetected).onGet(() => {
+          const live = this.client.getState().zones.get(slug);
+          return toHapOccupancy(live?.occupancy ?? false);
+        });
+        service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
         this.zoneServices.set(slug, service);
       }
       service.updateCharacteristic(C.OccupancyDetected, toHapOccupancy(zone.occupancy));
@@ -226,9 +207,7 @@ export class Fp2Accessory {
     // and writes cachedAccessories.json.
     if (structuralChange) {
       this.platform.api.updatePlatformAccessories([this.accessory]);
-      this.platform.log.debug(
-        `[${this.cfg.name}] zone topology changed → published ${this.zoneServices.size} zone service(s) to HAP`,
-      );
+      this.platform.log.debug(`[${this.cfg.name}] zone topology changed → published ${this.zoneServices.size} zone service(s) to HAP`);
     }
   }
 
@@ -251,5 +230,4 @@ export class Fp2Accessory {
   private zoneDisplayName(name: string): string {
     return `${this.cfg.name} ${name}`.trim();
   }
-
 }

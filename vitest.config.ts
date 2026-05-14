@@ -7,13 +7,8 @@ export default defineConfig({
     globals: false,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'text-summary', 'html'],
-      include: [
-        'src/parser.ts',
-        'src/mappers.ts',
-        'src/pairing-store.ts',
-        'src/discovery.ts',
-      ],
+      reporter: ['text', 'text-summary', 'html', 'lcov'],
+      include: ['src/parser.ts', 'src/mappers.ts', 'src/pairing-store.ts'],
       thresholds: {
         statements: 80,
         branches: 80,

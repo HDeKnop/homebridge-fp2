@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  isHapType,
-  normalizeRevisionString,
-  parseAccessories,
-  slugify,
-} from '../src/parser.js';
-import {
-  emptyPayload,
-  fp2WithFullUuids,
-  fp2WithTwoZones,
-  fp2WithUnnamedZone,
-} from './fixtures.js';
+import { isHapType, normalizeRevisionString, parseAccessories, slugify } from '../src/parser.js';
+import { emptyPayload, fp2WithFullUuids, fp2WithTwoZones, fp2WithUnnamedZone } from './fixtures.js';
 
 describe('isHapType', () => {
   it('matches short form exactly', () => {
@@ -136,19 +126,19 @@ describe('parseAccessories', () => {
   it('treats an occupancy service with empty Name char as the primary', () => {
     // No primary name → first occupancy service should still be picked.
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          { iid: 1, type: '3E', characteristics: [] },
-          {
-            iid: 10,
-            type: '86',
-            characteristics: [
-              { iid: 11, type: '71', value: 1, format: 'uint8', perms: ['pr', 'ev'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            { iid: 1, type: '3E', characteristics: [] },
+            {
+              iid: 10,
+              type: '86',
+              characteristics: [{ iid: 11, type: '71', value: 1, format: 'uint8', perms: ['pr', 'ev'] }],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     expect(result.primaryOccupancyIid).toBe(11);
@@ -157,21 +147,23 @@ describe('parseAccessories', () => {
 
   it('skips occupancy services that lack the OccupancyDetected characteristic', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          { iid: 1, type: '3E', characteristics: [{ iid: 2, type: '23', value: 'FP2' }] },
-          { iid: 10, type: '86', characteristics: [] },
-          {
-            iid: 20,
-            type: '86',
-            characteristics: [
-              { iid: 21, type: '71', value: 0, format: 'uint8', perms: ['pr', 'ev'] },
-              { iid: 22, type: 'E3', value: 'Sofa', format: 'string', perms: ['pr', 'pw'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            { iid: 1, type: '3E', characteristics: [{ iid: 2, type: '23', value: 'FP2' }] },
+            { iid: 10, type: '86', characteristics: [] },
+            {
+              iid: 20,
+              type: '86',
+              characteristics: [
+                { iid: 21, type: '71', value: 0, format: 'uint8', perms: ['pr', 'ev'] },
+                { iid: 22, type: 'E3', value: 'Sofa', format: 'string', perms: ['pr', 'pw'] },
+              ],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     expect(result.primaryOccupancyIid).toBeNull();
@@ -189,12 +181,12 @@ describe('parseAccessories', () => {
 
   it('tolerates services with missing characteristics array', () => {
     const malformed = {
-      accessories: [{
-        aid: 1,
-        services: [
-          { iid: 10, type: '86', characteristics: undefined as never },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [{ iid: 10, type: '86', characteristics: undefined as never }],
+        },
+      ],
     };
     const result = parseAccessories(malformed);
     expect(result.state.zones.size).toBe(0);
@@ -203,19 +195,21 @@ describe('parseAccessories', () => {
 
   it('normalizes the FP2 firmware revision when value is literal "0"', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 1,
-            type: '3E',
-            characteristics: [
-              { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
-              { iid: 3, type: '52', value: '0', format: 'string', perms: ['pr'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 1,
+              type: '3E',
+              characteristics: [
+                { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
+                { iid: 3, type: '52', value: '0', format: 'string', perms: ['pr'] },
+              ],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     // "0" is malformed-ish per Apple's preferences; we coerce to 0.0.0.
@@ -224,19 +218,21 @@ describe('parseAccessories', () => {
 
   it('preserves a well-formed FP2 firmware string', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 1,
-            type: '3E',
-            characteristics: [
-              { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
-              { iid: 3, type: '52', value: '2.4.11', format: 'string', perms: ['pr'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 1,
+              type: '3E',
+              characteristics: [
+                { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
+                { iid: 3, type: '52', value: '2.4.11', format: 'string', perms: ['pr'] },
+              ],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     expect(result.firmware).toBe('2.4.11');
@@ -244,18 +240,18 @@ describe('parseAccessories', () => {
 
   it('returns null firmware/hardware when not present on the accessory', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 1,
-            type: '3E',
-            characteristics: [
-              { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 1,
+              type: '3E',
+              characteristics: [{ iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] }],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     expect(result.firmware).toBeNull();
@@ -264,20 +260,22 @@ describe('parseAccessories', () => {
 
   it('handles serial / model values that are not strings', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 1,
-            type: '3E',
-            characteristics: [
-              { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
-              { iid: 3, type: '30', value: 12345, format: 'string', perms: ['pr'] },
-              { iid: 4, type: '21', value: null, format: 'string', perms: ['pr'] },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 1,
+              type: '3E',
+              characteristics: [
+                { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
+                { iid: 3, type: '30', value: 12345, format: 'string', perms: ['pr'] },
+                { iid: 4, type: '21', value: null, format: 'string', perms: ['pr'] },
+              ],
+            },
+          ],
+        },
+      ],
     };
     const result = parseAccessories(payload);
     expect(result.serial).toBe('12345');

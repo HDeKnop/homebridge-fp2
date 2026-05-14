@@ -7,6 +7,41 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-13
+
+### Changed
+
+- **Breaking**: dropped Homebridge 1.x support. `engines.homebridge` and the
+  `peerDependencies.homebridge` range narrowed to `^2.0.0`. This is an
+  informed deviation from the official `homebridge/homebridge-plugin-template`
+  (which still ships dual `^1.8.0 || ^2.0.0`) — motivated by the fact that
+  this plugin has no Homebridge 1.x users to migrate.
+- **Breaking**: dropped Node.js 18 and 20 support. `engines.node` narrowed
+  to `^22.0.0 || ^24.0.0`.
+
+### Internal
+
+- Migrated ESLint to v10 with the `typescript-eslint` v8 unified meta-package
+  (replaces the deprecated `@typescript-eslint/eslint-plugin` +
+  `@typescript-eslint/parser` split). Added `@eslint/js` recommended baseline.
+- Migrated the test runner to Vitest 4 + `@vitest/coverage-v8` 4.
+- Bumped TypeScript to ^6.0.3, rimraf to ^6, `@types/node` to ^22.
+- Added Prettier 3 with `eslint-config-prettier`. Plugin source and tests are
+  now formatted by Prettier; stylistic ESLint rules deferred.
+- CI: dropped Node 18/20 matrix entries; reorganised into `build-and-test`
+  (Node 22.x / 24.x), `audit`, and `package-check` jobs. Coverage now
+  uploaded as `coverage-lcov` artifact from the Node 22.x run.
+- Added `preversion` / `postversion` scripts for safer `npm version`
+  workflows.
+- Lint scope extended to `test/`.
+- `.gitignore`: pinned out legacy ESLint config filenames as a guard against
+  iCloud-sync restoring them from other machines.
+
+### Compatibility
+
+- This is a pre-1.0 breaking-change release. Users still on Homebridge 1.x or
+  Node 18/20 must remain on `homebridge-fp2@0.1.x`.
+
 ## [0.1.0] — 2026-05-11
 
 ### Added
@@ -45,5 +80,6 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/HDeKnop/homebridge-fp2/releases/tag/v0.1.0

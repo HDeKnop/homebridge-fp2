@@ -50,7 +50,7 @@ describe('detectResetCharacteristic', () => {
     expect(r.chosen?.id).toBe('1.51');
     expect(r.chosen?.reason).toBe('description-match');
     // Both candidates should still be reported.
-    expect(r.candidates.map((c) => c.id)).toContain('1.50');
+    expect(r.candidates.map(c => c.id)).toContain('1.50');
   });
 
   it('returns no candidates for a payload with only Apple-standard read-only chars', () => {
@@ -61,29 +61,31 @@ describe('detectResetCharacteristic', () => {
 
   it('ignores non-Boolean writable characteristics', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 10,
-            type: '86',
-            characteristics: [
-              {
-                iid: 60,
-                type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
-                format: 'string',
-                perms: ['pw'],
-              },
-              {
-                iid: 61,
-                type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD5555',
-                format: 'float',
-                perms: ['pw'],
-              },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 10,
+              type: '86',
+              characteristics: [
+                {
+                  iid: 60,
+                  type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
+                  format: 'string',
+                  perms: ['pw'],
+                },
+                {
+                  iid: 61,
+                  type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD5555',
+                  format: 'float',
+                  perms: ['pw'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
     };
     const r = detectResetCharacteristic(payload);
     expect(r.chosen).toBeNull();
@@ -91,48 +93,52 @@ describe('detectResetCharacteristic', () => {
 
   it('ignores read-only Booleans', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 10,
-            type: '86',
-            characteristics: [
-              {
-                iid: 70,
-                type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
-                format: 'bool',
-                perms: ['pr'],
-                description: 'Reset',
-              },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 10,
+              type: '86',
+              characteristics: [
+                {
+                  iid: 70,
+                  type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
+                  format: 'bool',
+                  perms: ['pr'],
+                  description: 'Reset',
+                },
+              ],
+            },
+          ],
+        },
+      ],
     };
     expect(detectResetCharacteristic(payload).chosen).toBeNull();
   });
 
   it('accepts both "pw" and "tw" perms', () => {
     const payload = {
-      accessories: [{
-        aid: 1,
-        services: [
-          {
-            iid: 10,
-            type: '86',
-            characteristics: [
-              {
-                iid: 80,
-                type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
-                format: 'bool',
-                perms: ['tw'],
-                description: 'Train Reset',
-              },
-            ],
-          },
-        ],
-      }],
+      accessories: [
+        {
+          aid: 1,
+          services: [
+            {
+              iid: 10,
+              type: '86',
+              characteristics: [
+                {
+                  iid: 80,
+                  type: 'AAAA1111-BBBB-2222-CCCC-3333DDDD4444',
+                  format: 'bool',
+                  perms: ['tw'],
+                  description: 'Train Reset',
+                },
+              ],
+            },
+          ],
+        },
+      ],
     };
     expect(detectResetCharacteristic(payload).chosen?.id).toBe('1.80');
   });

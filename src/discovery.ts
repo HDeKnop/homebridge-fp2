@@ -56,25 +56,18 @@ export interface HapServiceUp {
  * `host` and `preferredDeviceId` may both be omitted, in which case nothing
  * matches.
  */
-export function matchesService(
-  svc: HapServiceUp,
-  host: string,
-  preferredDeviceId?: string | null,
-): boolean {
+export function matchesService(svc: HapServiceUp, host: string, preferredDeviceId?: string | null): boolean {
   if (preferredDeviceId) {
     const want = normalizeDeviceId(preferredDeviceId)?.toLowerCase();
     if (want && svc.id?.toLowerCase() === want) return true;
   }
   const targetLower = host.toLowerCase();
-  const addresses = new Set([
-    svc.address?.toLowerCase(),
-    ...(svc.allAddresses ?? []).map((a) => a.toLowerCase()),
-  ].filter(Boolean) as string[]);
+  const addresses = new Set(
+    [svc.address?.toLowerCase(), ...(svc.allAddresses ?? []).map(a => a.toLowerCase())].filter(Boolean) as string[]
+  );
   if (addresses.has(targetLower)) return true;
   const nameLower = (svc.name ?? '').toLowerCase();
-  if (nameLower
-    && (nameLower === targetLower
-      || nameLower.replace(/\.$/, '') === targetLower.replace(/\.$/, ''))) {
+  if (nameLower && (nameLower === targetLower || nameLower.replace(/\.$/, '') === targetLower.replace(/\.$/, ''))) {
     return true;
   }
   if (targetLower.endsWith('.local') || targetLower.endsWith('.local.')) {
@@ -102,7 +95,7 @@ export async function discoverFp2ByHost(
   host: string,
   timeoutMs: number,
   log: Logging,
-  preferredDeviceId?: string,
+  preferredDeviceId?: string
 ): Promise<DiscoveredFp2 | null> {
   const { IPDiscovery } = await import('hap-controller');
   if (!IPDiscovery) {
@@ -112,7 +105,7 @@ export async function discoverFp2ByHost(
   const discovery = new IPDiscovery();
   const observed: HapServiceUp[] = [];
 
-  return new Promise<DiscoveredFp2 | null>((resolve) => {
+  return new Promise<DiscoveredFp2 | null>(resolve => {
     let resolved = false;
     let timer: NodeJS.Timeout | null = null;
 
@@ -120,18 +113,21 @@ export async function discoverFp2ByHost(
       if (resolved) return;
       resolved = true;
       if (timer) clearTimeout(timer);
-      try { discovery.stop(); } catch { /* noop */ }
+      try {
+        discovery.stop();
+      } catch {
+        /* noop */
+      }
       if (!result) {
         log.debug(
           `[discovery] no FP2 matched ${host} after ${timeoutMs}ms; saw ${observed.length} HAP service(s): ` +
-          observed.map((s) => `{name=${s.name} addr=${s.address} port=${s.port} id=${s.id}}`).join(', '),
+            observed.map(s => `{name=${s.name} addr=${s.address} port=${s.port} id=${s.id}}`).join(', ')
         );
       }
       resolve(result);
     };
 
-    const tryMatch = (svc: HapServiceUp): boolean =>
-      matchesService(svc, host, preferredDeviceId);
+    const tryMatch = (svc: HapServiceUp): boolean => matchesService(svc, host, preferredDeviceId);
 
     const onUp = (svc: HapServiceUp) => {
       observed.push(svc);

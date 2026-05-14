@@ -1,29 +1,13 @@
 import { join } from 'node:path';
 
-import type {
-  API,
-  Characteristic,
-  DynamicPlatformPlugin,
-  Logging,
-  PlatformAccessory,
-  PlatformConfig,
-  Service,
-} from 'homebridge';
+import type { API, Characteristic, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
 
 import { Fp2Accessory } from './accessory.js';
 import { Fp2HapClient } from './hap-client.js';
 import { sanitizeHapName } from './mappers.js';
 import { PairingStore } from './pairing-store.js';
-import {
-  DEFAULT_POLL_SECONDS,
-  PLATFORM_NAME,
-  PLUGIN_NAME,
-  STORAGE_SUBDIR,
-} from './settings.js';
-import type {
-  Fp2DeviceConfig,
-  Fp2PlatformConfig,
-} from './types.js';
+import { DEFAULT_POLL_SECONDS, PLATFORM_NAME, PLUGIN_NAME, STORAGE_SUBDIR } from './settings.js';
+import type { Fp2DeviceConfig, Fp2PlatformConfig } from './types.js';
 
 interface ManagedDevice {
   cfg: Fp2DeviceConfig;
@@ -42,7 +26,7 @@ export class FP2Platform implements DynamicPlatformPlugin {
   constructor(
     public readonly log: Logging,
     public readonly config: PlatformConfig,
-    public readonly api: API,
+    public readonly api: API
   ) {
     this.Service = api.hap.Service;
     this.Characteristic = api.hap.Characteristic;
@@ -92,8 +76,7 @@ export class FP2Platform implements DynamicPlatformPlugin {
       // space + apostrophe only). Sanitize at the source so cached
       // accessories don't get persisted with invalid displayName values.
       const safeName = sanitizeHapName(d.name, 'FP2');
-      const accessory = this.cachedAccessories.get(uuid)
-        ?? new this.api.platformAccessory(safeName, uuid, this.api.hap.Categories.SENSOR);
+      const accessory = this.cachedAccessories.get(uuid) ?? new this.api.platformAccessory(safeName, uuid, this.api.hap.Categories.SENSOR);
       accessory.displayName = safeName;
       accessory.context.host = d.host;
       accessory.context.name = d.name;
@@ -130,6 +113,6 @@ export class FP2Platform implements DynamicPlatformPlugin {
 
   private async shutdown(): Promise<void> {
     this.log.info('shutting down FP2 clients');
-    await Promise.all(this.devices.map((d) => d.client.close()));
+    await Promise.all(this.devices.map(d => d.client.close()));
   }
 }

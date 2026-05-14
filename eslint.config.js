@@ -1,29 +1,39 @@
-import tseslint from '@typescript-eslint/eslint-plugin';
-import tsparser from '@typescript-eslint/parser';
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import prettierConfig from 'eslint-config-prettier';
 
-export default [
+export default tseslint.config(
   {
-    files: ['src/**/*.ts'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'homebridge-ui/public/**'],
+  },
+
+  eslint.configs.recommended,
+  ...tseslint.configs.recommended,
+
+  {
+    files: ['src/**/*.{ts,js}', 'test/**/*.ts'],
     languageOptions: {
-      parser: tsparser,
-      parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: 'module',
-      },
-    },
-    plugins: {
-      '@typescript-eslint': tseslint,
+      ecmaVersion: 2022,
+      sourceType: 'module',
     },
     rules: {
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       'prefer-const': 'warn',
+      'prefer-arrow-callback': 'warn',
+      'dot-notation': 'warn',
       'no-console': 'warn',
-      'eqeqeq': ['error', 'always'],
+      eqeqeq: ['error', 'always'],
     },
   },
+
   {
-    ignores: ['dist/**', 'node_modules/**'],
+    files: ['test/**/*.ts'],
+    rules: {
+      'prefer-arrow-callback': 'off',
+    },
   },
-];
+
+  prettierConfig
+);

@@ -5,19 +5,9 @@ import type { PairingData } from 'hap-controller';
 
 import { discoverFp2ByHost } from './discovery.js';
 import { PairingStore } from './pairing-store.js';
-import {
-  type Accessories,
-  parseAccessories,
-} from './parser.js';
-import {
-  DISCOVERY_TIMEOUT_MS,
-  RECONNECT_INITIAL_MS,
-  RECONNECT_MAX_MS,
-} from './settings.js';
-import type {
-  Fp2DeviceConfig,
-  Fp2State,
-} from './types.js';
+import { type Accessories, parseAccessories } from './parser.js';
+import { DISCOVERY_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS } from './settings.js';
+import type { Fp2DeviceConfig, Fp2State } from './types.js';
 
 interface HapEventMessage {
   characteristics: Array<{ aid: number; iid: number; value: unknown }>;
@@ -30,6 +20,9 @@ export type Fp2HapEvents = {
   error: (err: Error) => void;
 };
 
+// Typed EventEmitter via declaration merging — class + interface share a name
+// so consumers get typed on()/emit() signatures.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export declare interface Fp2HapClient {
   on<K extends keyof Fp2HapEvents>(event: K, listener: Fp2HapEvents[K]): this;
   emit<K extends keyof Fp2HapEvents>(event: K, ...args: Parameters<Fp2HapEvents[K]>): boolean;
@@ -39,6 +32,7 @@ export declare interface Fp2HapClient {
 type HttpClientCtor = typeof import('hap-controller').HttpClient;
 type HttpClientInstance = InstanceType<HttpClientCtor>;
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class Fp2HapClient extends EventEmitter {
   private client: HttpClientInstance | null = null;
   private state: Fp2State = {
@@ -70,7 +64,7 @@ export class Fp2HapClient extends EventEmitter {
   constructor(
     private readonly cfg: Fp2DeviceConfig,
     private readonly store: PairingStore,
-    private readonly log: Logging,
+    private readonly log: Logging
   ) {
     super();
   }
@@ -125,12 +119,7 @@ export class Fp2HapClient extends EventEmitter {
     // Always discover via mDNS on connect — HAP accessories advertise on
     // ephemeral ports, so we cannot hard-code one and the port may even
     // change after a reboot. mDNS is also how we get the canonical deviceId.
-    const discovered = await discoverFp2ByHost(
-      this.cfg.host,
-      DISCOVERY_TIMEOUT_MS,
-      this.log,
-      stored?.deviceId,
-    );
+    const discovered = await discoverFp2ByHost(this.cfg.host, DISCOVERY_TIMEOUT_MS, this.log, stored?.deviceId);
 
     // If the host-based lookup missed but discovery did surface the FP2,
     // try matching a previous pairing by deviceId. This handles the case
@@ -141,13 +130,13 @@ export class Fp2HapClient extends EventEmitter {
       if (stored) {
         this.log.info(
           `[${this.cfg.name}] recovered pairing for ${discovered.deviceId} from prior host "${stored.host}" ` +
-          `(current config host is "${this.cfg.host}")`,
+            `(current config host is "${this.cfg.host}")`
         );
       }
     }
     if (discovered) {
       this.log.info(
-        `[${this.cfg.name}] discovered FP2: id=${discovered.deviceId} port=${discovered.port} model=${discovered.model} sf=${discovered.statusFlags}`,
+        `[${this.cfg.name}] discovered FP2: id=${discovered.deviceId} port=${discovered.port} model=${discovered.model} sf=${discovered.statusFlags}`
       );
       if (discovered.model) this.model = discovered.model;
     } else {
@@ -160,7 +149,7 @@ export class Fp2HapClient extends EventEmitter {
     if (!port) {
       throw new Error(
         `cannot connect to ${this.cfg.host}: no port available — mDNS discovery yielded nothing and config has no "port". ` +
-        'Set "port" in config (you can find it via `dns-sd -L <fp2-name> _hap._tcp local.`).',
+          'Set "port" in config (you can find it via `dns-sd -L <fp2-name> _hap._tcp local.`).'
       );
     }
 
@@ -175,9 +164,7 @@ export class Fp2HapClient extends EventEmitter {
       throw new Error(`cannot connect: no address available (config host="${this.cfg.host}")`);
     }
     if (discovered && address !== this.cfg.host) {
-      this.log.info(
-        `[${this.cfg.name}] FP2 IP changed: config=${this.cfg.host} → live=${discovered.address} (DHCP lease)`,
-      );
+      this.log.info(`[${this.cfg.name}] FP2 IP changed: config=${this.cfg.host} → live=${discovered.address} (DHCP lease)`);
     }
 
     if (stored) {
@@ -199,7 +186,7 @@ export class Fp2HapClient extends EventEmitter {
         }
       } catch (err) {
         const msg = (err as Error).message ?? '';
-        const stale = /pair[\- ]?verify|not paired|forbidden|401|403|470/i.test(msg);
+        const stale = /pair[- ]?verify|not paired|forbidden|401|403|470/i.test(msg);
         if (stale && allowRepair) {
           this.log.warn(`[${this.cfg.name}] stored pairing rejected (${msg}); clearing and re-pairing`);
           await this.client.close().catch(() => undefined);
@@ -222,8 +209,8 @@ export class Fp2HapClient extends EventEmitter {
         this.markTerminalConfigError('FP2 already paired with another controller');
         throw new Error(
           `FP2 reports it is already paired (sf=${discovered.statusFlags}). ` +
-          'Remove it from Apple Home (Home app → device → Settings → Remove Accessory), ' +
-          'or factory-reset via 10s long-press, then restart Homebridge.',
+            'Remove it from Apple Home (Home app → device → Settings → Remove Accessory), ' +
+            'or factory-reset via 10s long-press, then restart Homebridge.'
         );
       }
 
@@ -236,7 +223,7 @@ export class Fp2HapClient extends EventEmitter {
       const pairMethod = supportsMfi ? 1 : 0;
       this.log.debug(
         `[${this.cfg.name}] using pair method ${pairMethod} (${supportsMfi ? 'PairSetupWithAuth/MFi' : 'PairSetup/SW'}) ` +
-        `based on ff=${discovered?.featureFlags ?? 'unknown'}`,
+          `based on ff=${discovered?.featureFlags ?? 'unknown'}`
       );
 
       this.log.info(`[${this.cfg.name}] pairing with FP2 at ${address}:${port}…`);
@@ -258,15 +245,17 @@ export class Fp2HapClient extends EventEmitter {
           advice = 'pin appears to be wrong. Double-check the 8-digit setup code on the FP2 sticker (Aqara prints it as XXXX-XXXX).';
           this.markTerminalConfigError(`wrong pin (M4 auth failure)`);
         } else if (maxTries) {
-          advice = 'FP2 is temporarily refusing pair-setup (likely rate-limited after repeated wrong-pin attempts). Power-cycle the FP2 (unplug USB-C, wait 5s, plug back in) — Wi-Fi credentials persist. Then restart Homebridge.';
+          advice =
+            'FP2 is temporarily refusing pair-setup (likely rate-limited after repeated wrong-pin attempts). Power-cycle the FP2 (unplug USB-C, wait 5s, plug back in) — Wi-Fi credentials persist. Then restart Homebridge.';
           this.markTerminalConfigError(`pair-setup rate-limited`);
         } else if (alreadyPaired) {
-          advice = 'FP2 reports it is already paired with another controller. Remove it from Apple Home (or factory-reset via 10s long-press), then restart Homebridge.';
+          advice =
+            'FP2 reports it is already paired with another controller. Remove it from Apple Home (or factory-reset via 10s long-press), then restart Homebridge.';
           this.markTerminalConfigError(`device already paired`);
         } else {
           advice = `unexpected pair-setup error. Check that ${this.cfg.host}:${port} is reachable and the FP2 is in setup mode.`;
         }
-        throw new Error(`pair-setup failed (${raw}). ${advice}`);
+        throw new Error(`pair-setup failed (${raw}). ${advice}`, { cause: err });
       }
       const ltd = setupClient.getLongTermData();
       await setupClient.close().catch(() => undefined);
@@ -297,7 +286,7 @@ export class Fp2HapClient extends EventEmitter {
     this.emit('connected');
     this.emit('state', this.state);
     this.log.info(
-      `[${this.cfg.name}] connected — occupancy=${this.state.occupancy} lux=${this.state.lightLevel ?? 'n/a'} zones=${this.state.zones.size}`,
+      `[${this.cfg.name}] connected — occupancy=${this.state.occupancy} lux=${this.state.lightLevel ?? 'n/a'} zones=${this.state.zones.size}`
     );
   }
 
@@ -326,7 +315,7 @@ export class Fp2HapClient extends EventEmitter {
         this.applyCharacteristicUpdate(ch.aid, ch.iid, ch.value);
       }
       this.log.debug(
-        `[${this.cfg.name}] event: occupancy=${this.state.occupancy} lux=${this.state.lightLevel ?? 'n/a'} zones=[${[...this.state.zones.values()].map(z => `${z.name}:${z.occupancy}`).join(', ')}]`,
+        `[${this.cfg.name}] event: occupancy=${this.state.occupancy} lux=${this.state.lightLevel ?? 'n/a'} zones=[${[...this.state.zones.values()].map(z => `${z.name}:${z.occupancy}`).join(', ')}]`
       );
       this.emit('state', this.state);
     };
@@ -428,9 +417,7 @@ export class Fp2HapClient extends EventEmitter {
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectTimer) return;
     if (this.terminalReason) {
-      this.log.warn(
-        `[${this.cfg.name}] not retrying: ${this.terminalReason}. Fix the config or device state and restart Homebridge.`,
-      );
+      this.log.warn(`[${this.cfg.name}] not retrying: ${this.terminalReason}. Fix the config or device state and restart Homebridge.`);
       return;
     }
     const delay = this.reconnectDelay;

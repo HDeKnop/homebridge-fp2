@@ -45,7 +45,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     }
 
     const fp2s = new Map();
-    const onUp = (svc) => {
+    const onUp = svc => {
       if (!svc || svc.md !== FP2_MODEL) return;
       // De-dupe by HAP deviceId — the same FP2 sometimes announces on
       // multiple interfaces and we only want one row in the UI.
@@ -70,9 +70,13 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       throw new RequestError('mDNS discovery failed to start: ' + (err?.message ?? err));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, DISCOVERY_WINDOW_MS));
+    await new Promise(resolve => setTimeout(resolve, DISCOVERY_WINDOW_MS));
 
-    try { discovery.stop(); } catch { /* noop */ }
+    try {
+      discovery.stop();
+    } catch {
+      /* noop */
+    }
     discovery.removeAllListeners('serviceUp');
 
     return {
@@ -95,8 +99,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     const digits = pin.replace(/\D/g, '');
     if (digits.length !== 8) {
       throw new RequestError(
-        `Setup code must contain exactly 8 digits — got ${digits.length}. ` +
-        'It usually looks like "2871-7054" on the sticker.',
+        `Setup code must contain exactly 8 digits — got ${digits.length}. ` + 'It usually looks like "2871-7054" on the sticker.'
       );
     }
     return {

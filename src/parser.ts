@@ -57,19 +57,18 @@ export function isHapType(actual: string | undefined, shortHex: string): boolean
   return a.startsWith(`${s.padStart(8, '0')}-`);
 }
 
-export function findChar(
-  service: ServiceObject,
-  shortHex: string,
-): CharacteristicObject | undefined {
+export function findChar(service: ServiceObject, shortHex: string): CharacteristicObject | undefined {
   if (!Array.isArray(service.characteristics)) return undefined;
-  return service.characteristics.find((c) => isHapType(c.type, shortHex));
+  return service.characteristics.find(c => isHapType(c.type, shortHex));
 }
 
 export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'zone';
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'zone'
+  );
 }
 
 /**
@@ -121,10 +120,7 @@ export interface ParseOptions {
  *
  * Returns a fully-formed Fp2State plus the IIDs needed for subscriptions.
  */
-export function parseAccessories(
-  payload: Accessories | null | undefined,
-  opts: ParseOptions = {},
-): ParsedAccessories {
+export function parseAccessories(payload: Accessories | null | undefined, opts: ParseOptions = {}): ParsedAccessories {
   const state: Fp2State = {
     occupancy: false,
     lightLevel: null,
@@ -177,8 +173,8 @@ export function parseAccessories(
       if (isHapType(svc.type, SERVICE_OCCUPANCY)) {
         const configured = findChar(svc, CHAR_CONFIGURED_NAME);
         const named = findChar(svc, CHAR_NAME);
-        const name = (typeof configured?.value === 'string' ? configured.value : null)
-          ?? (typeof named?.value === 'string' ? named.value : null);
+        const name =
+          (typeof configured?.value === 'string' ? configured.value : null) ?? (typeof named?.value === 'string' ? named.value : null);
         occupancyServices.push({ svc, name });
       }
       if (isHapType(svc.type, SERVICE_LIGHT_SENSOR)) {
@@ -207,7 +203,7 @@ export function parseAccessories(
       }
     }
 
-    const excluded = new Set((opts.excludedZones ?? []).map((s) => s.toLowerCase()));
+    const excluded = new Set((opts.excludedZones ?? []).map(s => s.toLowerCase()));
     for (const { svc, name } of occupancyServices) {
       if (svc === primary) continue;
       const zoneName = name ?? `Zone ${svc.iid}`;
@@ -252,10 +248,7 @@ export interface ResetDetection {
  *   3. Writable Boolean characteristics on a vendor (non-Apple-standard) UUID.
  *   4. Otherwise null.
  */
-export function detectResetCharacteristic(
-  payload: Accessories | null | undefined,
-  override?: string,
-): ResetDetection {
+export function detectResetCharacteristic(payload: Accessories | null | undefined, override?: string): ResetDetection {
   if (override && /^\d+\.\d+$/.test(override)) {
     const cand: ResetCandidate = {
       id: override,
@@ -275,18 +268,15 @@ export function detectResetCharacteristic(
       if (!svc) continue;
       for (const ch of svc.characteristics ?? []) {
         if (ch.iid === undefined) continue;
-        const writable = Array.isArray(ch.perms)
-          && (ch.perms.includes('pw') || ch.perms.includes('tw'));
+        const writable = Array.isArray(ch.perms) && (ch.perms.includes('pw') || ch.perms.includes('tw'));
         if (!writable) continue;
         const isBool = ch.format === 'bool' || ch.format === 'uint8';
         if (!isBool) continue;
 
         const id = `${aid}.${ch.iid}`;
         const desc = (ch.description ?? '').toLowerCase();
-        const isAppleStandard = typeof ch.type === 'string'
-          && /^[0-9a-f]{8}-0000-1000-8000-0026bb765291$/i.test(ch.type);
-        const isShortAppleStandard = typeof ch.type === 'string'
-          && /^[0-9a-f]{1,8}$/i.test(ch.type);
+        const isAppleStandard = typeof ch.type === 'string' && /^[0-9a-f]{8}-0000-1000-8000-0026bb765291$/i.test(ch.type);
+        const isShortAppleStandard = typeof ch.type === 'string' && /^[0-9a-f]{1,8}$/i.test(ch.type);
 
         if (/reset|clear|presence|train/i.test(desc)) {
           candidates.push({ id, description: desc || ch.type || '', reason: 'description-match' });

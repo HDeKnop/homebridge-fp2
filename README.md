@@ -10,7 +10,7 @@ mmWave presence detection, light level, and per-zone occupancy as native
 HomeKit services through HAP-over-WiFi.
 
 > **Why bother?** The FP2 has stock HomeKit support, but its zones — the
-> killer feature configured in the Aqara app — are *not* exposed to
+> killer feature configured in the Aqara app — are _not_ exposed to
 > HomeKit. This plugin exposes each zone as its own Occupancy Sensor so
 > you can build per-area automations.
 
@@ -111,24 +111,24 @@ Or use the **Homebridge Config UI** — the schema renders a form.
 
 ### Per-device options
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `name` | string | — | Display name in HomeKit (required) |
-| `host` | string | — | FP2 identifier — mDNS bonjour name, hostname, or IP (required, see below) |
-| `port` | int | (mDNS) | HAP port. Usually omit — mDNS discovery resolves the FP2's ephemeral port. |
-| `pin` | string | — | Setup pin `###-##-###` (required, first run only) |
-| `exposeZones` | bool | `true` | Create per-zone Occupancy sensors |
-| `exposeLightSensor` | bool | `true` | Create Light Sensor service |
-| `pollIntervalSeconds` | int | `30` | Fallback poll. Real-time uses HAP events |
-| `excludedZones` | string[] | `[]` | Zone names (Aqara app) to skip |
-| `debug` | bool | `false` | Verbose logs |
+| Field                 | Type     | Default | Description                                                                |
+| --------------------- | -------- | ------- | -------------------------------------------------------------------------- |
+| `name`                | string   | —       | Display name in HomeKit (required)                                         |
+| `host`                | string   | —       | FP2 identifier — mDNS bonjour name, hostname, or IP (required, see below)  |
+| `port`                | int      | (mDNS)  | HAP port. Usually omit — mDNS discovery resolves the FP2's ephemeral port. |
+| `pin`                 | string   | —       | Setup pin `###-##-###` (required, first run only)                          |
+| `exposeZones`         | bool     | `true`  | Create per-zone Occupancy sensors                                          |
+| `exposeLightSensor`   | bool     | `true`  | Create Light Sensor service                                                |
+| `pollIntervalSeconds` | int      | `30`    | Fallback poll. Real-time uses HAP events                                   |
+| `excludedZones`       | string[] | `[]`    | Zone names (Aqara app) to skip                                             |
+| `debug`               | bool     | `false` | Verbose logs                                                               |
 
 ### Identifying your FP2 (the `host` field)
 
 The plugin accepts **three forms** for `host`, in order of robustness:
 
 1. **mDNS bonjour name** (recommended): `Presence-Sensor-FP2-A73D`
-   Stable across DHCP lease changes *and* factory resets — the suffix is
+   Stable across DHCP lease changes _and_ factory resets — the suffix is
    derived from the FP2's Wi-Fi MAC. Find it via `dns-sd -B _hap._tcp`
    on macOS or `avahi-browse -r _hap._tcp` on Linux.
 2. **mDNS hostname**: `Presence-Sensor-FP2-A73D.local`

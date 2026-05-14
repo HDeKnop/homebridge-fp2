@@ -53,7 +53,9 @@ export function normalizeDeviceId(id: string | null | undefined): string | null 
     try {
       const decoded = Buffer.from(id, 'hex').toString('utf8');
       if (decoded.includes(':')) return decoded;
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
   }
   return id;
 }

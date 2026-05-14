@@ -28,9 +28,7 @@ export const fp2WithTwoZones: Accessories = {
         {
           iid: 20,
           type: '84',
-          characteristics: [
-            { iid: 21, type: '6B', value: 142.5, format: 'float', perms: ['pr', 'ev'] },
-          ],
+          characteristics: [{ iid: 21, type: '6B', value: 142.5, format: 'float', perms: ['pr', 'ev'] }],
         },
         {
           iid: 30,
@@ -62,23 +60,17 @@ export const fp2WithFullUuids: Accessories = {
         {
           iid: 1,
           type: '0000003E-0000-1000-8000-0026BB765291',
-          characteristics: [
-            { iid: 2, type: '00000023-0000-1000-8000-0026BB765291', value: 'FP2', format: 'string', perms: ['pr'] },
-          ],
+          characteristics: [{ iid: 2, type: '00000023-0000-1000-8000-0026BB765291', value: 'FP2', format: 'string', perms: ['pr'] }],
         },
         {
           iid: 10,
           type: '00000086-0000-1000-8000-0026BB765291',
-          characteristics: [
-            { iid: 11, type: '00000071-0000-1000-8000-0026BB765291', value: true, format: 'bool', perms: ['pr', 'ev'] },
-          ],
+          characteristics: [{ iid: 11, type: '00000071-0000-1000-8000-0026BB765291', value: true, format: 'bool', perms: ['pr', 'ev'] }],
         },
         {
           iid: 20,
           type: '00000084-0000-1000-8000-0026BB765291',
-          characteristics: [
-            { iid: 21, type: '0000006B-0000-1000-8000-0026BB765291', value: 50.0, format: 'float', perms: ['pr', 'ev'] },
-          ],
+          characteristics: [{ iid: 21, type: '0000006B-0000-1000-8000-0026BB765291', value: 50.0, format: 'float', perms: ['pr', 'ev'] }],
         },
       ],
     },
@@ -94,9 +86,7 @@ export const fp2WithUnnamedZone: Accessories = {
         {
           iid: 1,
           type: '3E',
-          characteristics: [
-            { iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] },
-          ],
+          characteristics: [{ iid: 2, type: '23', value: 'FP2', format: 'string', perms: ['pr'] }],
         },
         {
           iid: 10,
@@ -109,9 +99,7 @@ export const fp2WithUnnamedZone: Accessories = {
         {
           iid: 30,
           type: '86',
-          characteristics: [
-            { iid: 31, type: '71', value: 0, format: 'uint8', perms: ['pr', 'ev'] },
-          ],
+          characteristics: [{ iid: 31, type: '71', value: 0, format: 'uint8', perms: ['pr', 'ev'] }],
         },
       ],
     },
