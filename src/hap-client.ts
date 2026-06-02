@@ -148,8 +148,9 @@ export class Fp2HapClient extends EventEmitter {
     const port = this.cfg.port ?? discovered?.port ?? stored?.port;
     if (!port) {
       throw new Error(
-        `cannot connect to ${this.cfg.host}: no port available — mDNS discovery yielded nothing and config has no "port". ` +
-          'Set "port" in config (you can find it via `dns-sd -L <fp2-name> _hap._tcp local.`).'
+        `cannot connect to ${this.cfg.host}: not found via mDNS and no port known from a previous pairing. ` +
+          'The FP2 advertises HAP on ephemeral ports, so mDNS discovery is the only supported path — ' +
+          'check that the sensor is powered on and reachable on the network.'
       );
     }
 
@@ -163,8 +164,12 @@ export class Fp2HapClient extends EventEmitter {
     if (!address) {
       throw new Error(`cannot connect: no address available (config host="${this.cfg.host}")`);
     }
-    if (discovered && address !== this.cfg.host) {
-      this.log.info(`[${this.cfg.name}] FP2 IP changed: config=${this.cfg.host} → live=${discovered.address} (DHCP lease)`);
+    // Surface a genuine address change (i.e. the live mDNS address differs from
+    // the last-known one we connected on). Comparing against the config host is
+    // wrong when `host` is an mDNS name — the resolved IP never equals the name,
+    // so that would log on every connect and falsely imply a DHCP change.
+    if (discovered && stored?.host && discovered.address !== stored.host) {
+      this.log.info(`[${this.cfg.name}] FP2 address changed since last connect: ${stored.host} → ${discovered.address}`);
     }
 
     if (stored) {

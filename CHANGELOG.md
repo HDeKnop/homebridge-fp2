@@ -7,6 +7,26 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-01
+
+### Fixed
+
+- mDNS discovery is now retried in discrete browse rounds
+  (`DISCOVERY_ROUND_MS` = 6s) up to a total `DISCOVERY_TIMEOUT_MS` budget
+  (raised 10s → 18s). Each round is a fresh `IPDiscovery` query burst, so a
+  dropped multicast response (common on WiFi) or a cold Bonjour cache no longer
+  wastes the whole window. This addresses connect attempts falling into 60s
+  reconnect loops with `mDNS discovery yielded nothing` when the FP2 was in fact
+  online but slow to surface after a Homebridge restart.
+- Reworded the "no port" connection error: it no longer advises setting `"port"`
+  in config. The FP2 advertises HAP on ephemeral ports, so mDNS is the only
+  supported discovery path; the message now points at network reachability
+  instead.
+- The "FP2 IP changed … (DHCP lease)" notice now only logs on a genuine address
+  change (live mDNS address vs. last-known stored address). Previously it fired
+  on every connect when `host` was an mDNS name — the resolved IP never equals
+  the hostname string — falsely implying a DHCP change on each reconnect.
+
 ## [0.2.0] — 2026-05-13
 
 ### Changed

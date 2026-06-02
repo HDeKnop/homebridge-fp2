@@ -26,6 +26,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
 
     this.onRequest('/discover', this.handleDiscover.bind(this));
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
+    this.onRequest('/restart-bridge', this.handleRestartBridge.bind(this));
 
     // Tell the parent UI we're ready to receive requests.
     this.ready();
@@ -92,6 +93,29 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    *  - "287-17-054"    (HAP canonical, already correct)
    *  - "287 17 054"    (whitespace)
    */
+  /**
+   * Attempt to restart the Homebridge child bridge via the Config UI X REST
+   * API (POST /api/server/restart). Works when auth is disabled or when the
+   * UI is accessible on the default port without credentials. Falls back
+   * gracefully so the caller can show a "restart manually" message.
+   */
+  async handleRestartBridge() {
+    const uiPort = process.env.HOMEBRIDGE_UI_PORT ?? '8581';
+    try {
+      const res = await fetch(`http://localhost:${uiPort}/api/server/restart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok || res.status === 200 || res.status === 204) {
+        return { restarted: true };
+      }
+      // 401/403 = auth required — tell the UI to show manual instructions.
+      return { restarted: false, message: 'Please restart Homebridge manually to apply the new config.' };
+    } catch {
+      return { restarted: false, message: 'Please restart Homebridge manually to apply the new config.' };
+    }
+  }
+
   async handleNormalizePin({ pin } = {}) {
     if (typeof pin !== 'string') {
       throw new RequestError('pin must be a string');

@@ -255,7 +255,6 @@ async function save() {
     await homebridge.updatePluginConfig(all);
     await homebridge.savePluginConfig();
 
-    homebridge.enableSaveButton();
     $('#done-name').textContent = block.name;
     show('done');
   } catch (err) {
@@ -264,6 +263,27 @@ async function save() {
       'You can still copy the JSON above into config.json manually.';
     errEl.hidden = false;
   }
+}
+
+/* ─── Done: restart bridge ─────────────────────────────────────────── */
+
+async function restartAndFinish() {
+  const errEl = $('#restart-error');
+  errEl.hidden = true;
+  homebridge.showSpinner();
+  try {
+    const { restarted, message } = await homebridge.request('/restart-bridge');
+    homebridge.hideSpinner();
+    if (restarted) {
+      homebridge.toast.success('Child bridge is restarting…', 'Restart triggered');
+    } else {
+      homebridge.toast.info(message ?? 'Please restart Homebridge manually.', 'Restart manually');
+    }
+  } catch (err) {
+    homebridge.hideSpinner();
+    homebridge.toast.info('Please restart Homebridge manually to apply the new config.', 'Restart manually');
+  }
+  homebridge.closeSettings();
 }
 
 /* ─── Utilities ────────────────────────────────────────────────────── */
@@ -309,6 +329,7 @@ function init() {
   });
   $('#options-next-btn').addEventListener('click', submitOptions);
   $('#save-btn').addEventListener('click', save);
+  $('#restart-btn').addEventListener('click', restartAndFinish);
   $('#add-another-btn').addEventListener('click', resetWizard);
 
   $$('[data-back]').forEach((btn) => {

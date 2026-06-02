@@ -90,8 +90,36 @@ export function matchesService(svc: HapServiceUp, host: string, preferredDeviceI
 // import it from the discovery surface area.
 export { normalizeDeviceId } from './mappers.js';
 import { normalizeDeviceId } from './mappers.js';
+import { DISCOVERY_ROUND_MS } from './settings.js';
 
+/**
+ * Discover the FP2 within `timeoutMs`, retrying in discrete browse rounds.
+ *
+ * Each round ({@link discoverFp2Once}) is a fresh `IPDiscovery` and therefore a
+ * fresh multicast query burst. A single dropped mDNS response (common on WiFi)
+ * only costs one round rather than the whole budget, and a cold Bonjour cache
+ * gets several chances to populate — both of which made the old single 10s
+ * passive wait fall into 60s reconnect loops.
+ */
 export async function discoverFp2ByHost(
+  host: string,
+  timeoutMs: number,
+  log: Logging,
+  preferredDeviceId?: string
+): Promise<DiscoveredFp2 | null> {
+  const roundMs = Math.min(DISCOVERY_ROUND_MS, timeoutMs);
+  const rounds = Math.max(1, Math.round(timeoutMs / roundMs));
+  for (let round = 1; round <= rounds; round++) {
+    const found = await discoverFp2Once(host, roundMs, log, preferredDeviceId);
+    if (found) {
+      if (round > 1) log.debug(`[discovery] matched ${host} on round ${round}/${rounds}`);
+      return found;
+    }
+  }
+  return null;
+}
+
+async function discoverFp2Once(
   host: string,
   timeoutMs: number,
   log: Logging,

@@ -187,13 +187,17 @@
       <section class="step" data-step="done" hidden>
         <h2>✓ Device added</h2>
         <p>
-          <strong id="done-name"></strong> has been written to your
-          Homebridge config. <strong>Restart Homebridge</strong> for the
-          plugin to pair with the FP2 and expose its services.
+          <strong id="done-name"></strong> has been saved to your Homebridge
+          config. Restart the child bridge for the plugin to pair with the
+          FP2 and expose its services.
         </p>
+        <p id="restart-error" class="error" hidden></p>
         <div class="actions">
-          <button type="button" class="btn primary" id="add-another-btn">
+          <button type="button" class="btn ghost" id="add-another-btn">
             Add another FP2
+          </button>
+          <button type="button" class="btn primary" id="restart-btn">
+            Restart &amp; Finish
           </button>
         </div>
       </section>
