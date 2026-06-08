@@ -12,6 +12,13 @@ export interface Fp2DeviceConfig {
   exposeLightSensor?: boolean;
   pollIntervalSeconds?: number;
   excludedZones?: string[];
+  /** Custom HomeKit name for the main occupancy sensor. Defaults to `name`. */
+  mainSensorName?: string;
+  /** Custom HomeKit name for the light sensor. Defaults to `${name} Light`. */
+  lightSensorName?: string;
+  /** Per-zone HomeKit name overrides, keyed by the Aqara zone name.
+   *  Defaults to `${name} ${zoneName}` for any zone without an override. */
+  zoneNames?: Record<string, string>;
   debug?: boolean;
 }
 

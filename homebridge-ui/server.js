@@ -4,14 +4,26 @@
 // the wizard calls from the browser:
 //   - "discover"        → mDNS scan for FP2 devices on the LAN
 //   - "normalize-pin"   → coerce sticker (XXXX-XXXX) format to HAP (XXX-XX-XXX)
+//   - "pair"            → pair live with an FP2 and enumerate its services so
+//                         the wizard can show / rename them during setup
+//   - "restart-bridge"  → ask Config UI X to restart Homebridge
 //
 // mDNS cannot run in the browser; that's the whole reason this server exists.
 // Discovery uses hap-controller's IPDiscovery (already a runtime dep) so we
 // pick up the FP2's deviceId, port, and sf/ff flags directly from the HAP
 // announcement — no need for a separate mDNS library.
 
+import { join } from 'node:path';
+
 import { HomebridgePluginUiServer, RequestError } from '@homebridge/plugin-ui-utils';
-import { IPDiscovery } from 'hap-controller';
+import { HttpClient, IPDiscovery } from 'hap-controller';
+
+// Reuse the plugin's compiled, dependency-free helpers (parser is type-only
+// dependent; pairing-store + settings pull only pure leaf modules). This keeps
+// the wizard's pairing identical to what the runtime plugin reads back.
+import { parseAccessories } from '../dist/parser.js';
+import { PairingStore } from '../dist/pairing-store.js';
+import { STORAGE_SUBDIR } from '../dist/settings.js';
 
 /** Aqara FP2 mDNS model identifier. Filter discovery to just these. */
 const FP2_MODEL = 'PS-S02D';
@@ -26,6 +38,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
 
     this.onRequest('/discover', this.handleDiscover.bind(this));
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
+    this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/restart-bridge', this.handleRestartBridge.bind(this));
 
     // Tell the parent UI we're ready to receive requests.
@@ -33,11 +46,10 @@ class Fp2UiServer extends HomebridgePluginUiServer {
   }
 
   /**
-   * Scan the LAN for `_hap._tcp` services, filter to Aqara FP2 devices, and
-   * return one entry per device. Idempotent and safe to call repeatedly —
-   * we tear down the discovery instance each invocation.
+   * Run a single mDNS browse round and return every Aqara FP2 seen, keyed by
+   * HAP deviceId. Shared by /discover and /pair so both see the same shape.
    */
-  async handleDiscover() {
+  async scanFp2s(windowMs = DISCOVERY_WINDOW_MS) {
     let discovery;
     try {
       discovery = new IPDiscovery();
@@ -71,7 +83,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       throw new RequestError('mDNS discovery failed to start: ' + (err?.message ?? err));
     }
 
-    await new Promise(resolve => setTimeout(resolve, DISCOVERY_WINDOW_MS));
+    await new Promise(resolve => setTimeout(resolve, windowMs));
 
     try {
       discovery.stop();
@@ -80,19 +92,173 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     }
     discovery.removeAllListeners('serviceUp');
 
+    return fp2s;
+  }
+
+  /**
+   * Scan the LAN for `_hap._tcp` services, filter to Aqara FP2 devices, and
+   * return one entry per device. Idempotent and safe to call repeatedly.
+   */
+  async handleDiscover() {
+    const fp2s = await this.scanFp2s();
     return {
       devices: [...fp2s.values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
     };
   }
 
   /**
-   * Accept a setup code in any common form and return the HAP-canonical
-   * `XXX-XX-XXX`. Common inputs:
-   *  - "2871-7054"     (Aqara sticker, 4-4)
-   *  - "28717054"      (no separators)
-   *  - "287-17-054"    (HAP canonical, already correct)
-   *  - "287 17 054"    (whitespace)
+   * Coerce a setup code in any common form to HAP-canonical `XXX-XX-XXX`.
+   * Throws a RequestError if it isn't exactly 8 digits.
    */
+  normalizePin(pin) {
+    if (typeof pin !== 'string') {
+      throw new RequestError('pin must be a string');
+    }
+    const digits = pin.replace(/\D/g, '');
+    if (digits.length !== 8) {
+      throw new RequestError(
+        `Setup code must contain exactly 8 digits — got ${digits.length}. ` + 'It usually looks like "2871-7054" on the sticker.'
+      );
+    }
+    return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5, 8)}`;
+  }
+
+  async handleNormalizePin({ pin } = {}) {
+    return { pin: this.normalizePin(pin) };
+  }
+
+  /**
+   * Pair live with an FP2 during the wizard and enumerate its services so the
+   * user can rename them. Persists the pairing under the same store the runtime
+   * plugin reads (keyed by the host string the wizard will write to config), so
+   * the next Homebridge start reuses it instead of pairing again.
+   *
+   * Input: { pin, configHost, address?, port?, deviceId?, featureFlags? }
+   *   - `configHost` is the identifier the wizard will save as `host`.
+   *   - For a discovered device, `address`/`port`/`deviceId`/`featureFlags`
+   *     come straight from /discover so we can pair without re-scanning.
+   *   - For manual entry only `configHost` is known, so we scan to resolve it.
+   *
+   * Returns:
+   *   - { paired: true, pin, deviceId, port, zones: [{name, slug}], light: {present} }
+   *   - { paired: false, pin } when the device couldn't be resolved (manual
+   *     fallback) — the wizard then defers pairing to runtime as before.
+   */
+  async handlePair({ pin, configHost, address, port, deviceId, featureFlags } = {}) {
+    const normalizedPin = this.normalizePin(pin);
+
+    if (!configHost || typeof configHost !== 'string') {
+      throw new RequestError('configHost is required');
+    }
+
+    // Resolve a live address/port/ff. Prefer values supplied from /discover;
+    // otherwise scan and match by deviceId or host/name (manual-entry path).
+    let target = address && port ? { address, port, featureFlags: featureFlags ?? 0, deviceId, availableToPair: true } : null;
+    if (!target) {
+      const fp2s = await this.scanFp2s();
+      const wantHost = configHost.toLowerCase();
+      for (const dev of fp2s.values()) {
+        const idMatch = deviceId && dev.deviceId?.toLowerCase() === String(deviceId).toLowerCase();
+        const hostMatch =
+          dev.host?.toLowerCase() === wantHost ||
+          dev.name?.toLowerCase() === wantHost ||
+          (dev.allAddresses ?? []).some(a => a.toLowerCase() === wantHost);
+        if (idMatch || hostMatch) {
+          target = { address: dev.host, port: dev.port, featureFlags: dev.featureFlags, deviceId: dev.deviceId, availableToPair: dev.availableToPair };
+          break;
+        }
+      }
+    }
+
+    if (!target) {
+      // Couldn't find it on the network — let the wizard fall back to saving
+      // config and pairing at runtime.
+      return { paired: false, pin: normalizedPin };
+    }
+
+    if (target.availableToPair === false) {
+      throw new RequestError(
+        'This FP2 reports it is already paired with another controller. ' +
+          'Remove it from Apple Home (Home app → device → Settings → Remove Accessory), ' +
+          'or factory-reset it (10-second long-press), then scan again.'
+      );
+    }
+
+    // FP2 advertises ff=2 (software auth only). bit 0 (1) = MFi coprocessor →
+    // PairSetupWithAuth (method 1); otherwise PairSetup (method 0).
+    const pairMethod = (target.featureFlags & 0x01) ? 1 : 0;
+    const setupDeviceId = target.deviceId ?? configHost;
+
+    let pairing;
+    const setupClient = new HttpClient(setupDeviceId, target.address, target.port);
+    try {
+      await setupClient.pairSetup(normalizedPin, pairMethod);
+      pairing = setupClient.getLongTermData();
+    } catch (err) {
+      await setupClient.close().catch(() => undefined);
+      throw new RequestError(this.describePairError(err));
+    }
+    await setupClient.close().catch(() => undefined);
+    if (!pairing) {
+      throw new RequestError('Pairing completed but no pairing data was returned. Try again.');
+    }
+
+    const pairedDeviceId = pairing.AccessoryPairingID ?? setupDeviceId;
+
+    // Read the service tree with the freshly established pairing.
+    let parsed;
+    const client = new HttpClient(pairedDeviceId, target.address, target.port, pairing, { usePersistentConnections: true });
+    try {
+      const accessories = await client.getAccessories();
+      parsed = parseAccessories(accessories);
+    } catch (err) {
+      await client.close().catch(() => undefined);
+      throw new RequestError('Paired, but could not read the FP2 service list: ' + (err?.message ?? err));
+    }
+    await client.close().catch(() => undefined);
+
+    // Persist the pairing so the runtime plugin reuses it (no double-pair).
+    try {
+      const store = new PairingStore(join(this.homebridgeStoragePath, STORAGE_SUBDIR));
+      await store.save({
+        deviceId: pairedDeviceId,
+        host: configHost,
+        port: target.port,
+        pairing,
+        pairedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      // Non-fatal: the runtime plugin can still pair itself. Surface nothing
+      // blocking, but the FP2 is now paired to this credential, so warn.
+      throw new RequestError(
+        'Paired with the FP2 but could not save the pairing file: ' +
+          (err?.message ?? err) +
+          '. Restart the FP2 (unplug 5s) before retrying so it can be paired fresh.'
+      );
+    }
+
+    return {
+      paired: true,
+      pin: normalizedPin,
+      deviceId: pairedDeviceId,
+      port: target.port,
+      zones: [...parsed.state.zones.values()].map(z => ({ name: z.name, slug: z.slug })),
+      light: { present: parsed.lightLevelIid !== null },
+    };
+  }
+
+  /** Turn a hap-controller pair-setup error into a user-facing message. */
+  describePairError(err) {
+    const raw = err?.message ?? String(err);
+    if (/M4:\s*Error:\s*2\b/i.test(raw)) {
+      return 'The setup code appears to be wrong. Double-check the 8-digit code on the FP2 sticker (Aqara prints it as XXXX-XXXX).';
+    }
+    if (/M4:\s*(?:Empty TLV|Error:\s*3\b)|MaxTries/i.test(raw)) {
+      return 'The FP2 is temporarily refusing pairing (likely rate-limited after repeated attempts). Power-cycle it (unplug USB-C, wait 5s, plug back in), then scan again.';
+    }
+    return `Pairing failed (${raw}). Check that the FP2 is powered on, reachable, and not already paired with another controller.`;
+  }
+
   /**
    * Attempt to restart the Homebridge child bridge via the Config UI X REST
    * API (POST /api/server/restart). Works when auth is disabled or when the
@@ -114,21 +280,6 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     } catch {
       return { restarted: false, message: 'Please restart Homebridge manually to apply the new config.' };
     }
-  }
-
-  async handleNormalizePin({ pin } = {}) {
-    if (typeof pin !== 'string') {
-      throw new RequestError('pin must be a string');
-    }
-    const digits = pin.replace(/\D/g, '');
-    if (digits.length !== 8) {
-      throw new RequestError(
-        `Setup code must contain exactly 8 digits — got ${digits.length}. ` + 'It usually looks like "2871-7054" on the sticker.'
-      );
-    }
-    return {
-      pin: `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5, 8)}`,
-    };
   }
 }
 

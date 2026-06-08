@@ -7,6 +7,32 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-08
+
+### Added
+
+- **Live pairing in the setup wizard.** Entering the setup code now pairs with
+  the FP2 during setup (via a new `/pair` UI-server endpoint) instead of
+  deferring to runtime. This validates the pin immediately and reads the
+  device's actual service tree. The pairing is persisted to the same store the
+  plugin reads at runtime, so the next Homebridge start reuses it rather than
+  pairing a second time. Manual host entry that can't be resolved on the network
+  falls back to the previous defer-to-runtime behaviour.
+- **Service discovery and renaming in the wizard.** A new **Services & names**
+  step lists the main occupancy sensor, each per-zone sensor, and the light
+  sensor found on the FP2, and lets you give each a custom HomeKit name.
+- **Custom name config fields**: `mainSensorName`, `lightSensorName`, and
+  `zoneNames` (per-zone overrides keyed by the Aqara zone name). Each defaults
+  to the previous derived name when unset.
+- **"Scan again" button** on the discovery step, always available, to re-run
+  mDNS discovery when a sensor doesn't surface on the first pass.
+
+### Changed
+
+- The wizard's final step now offers **Finish** (save + restart bridge + close)
+  and **Save & add another** (save + return to discovery), replacing the
+  separate confirm → done flow.
+
 ## [0.2.1] — 2026-06-01
 
 ### Fixed

@@ -5,6 +5,10 @@ coverage/
 .DS_Store
 .env
 
+# Local Claude Code workspace settings — machine-specific, and the local
+# allow-list references internal homelab hosts/paths that shouldn't be public.
+.claude/
+
 # Homebridge runtime state — if anyone ever runs `homebridge -U .` from inside
 # this repo, none of these should ever be committed. They contain credentials
 # (HAP long-term private keys, paired controller LTPKs) and per-device cache.

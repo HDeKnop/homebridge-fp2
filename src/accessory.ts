@@ -92,7 +92,7 @@ export class Fp2Accessory {
     const C = this.platform.Characteristic;
     const subtype = 'main';
     const existing = this.accessory.getServiceById(S.OccupancySensor, subtype) ?? this.accessory.getService(S.OccupancySensor);
-    const safeName = sanitizeHapName(this.cfg.name, 'FP2');
+    const safeName = sanitizeHapName(this.cfg.mainSensorName ?? this.cfg.name, 'FP2');
     const service = existing ?? this.accessory.addService(S.OccupancySensor, safeName, subtype);
 
     service.setCharacteristic(C.Name, safeName);
@@ -117,7 +117,9 @@ export class Fp2Accessory {
     const S = this.platform.Service;
     const C = this.platform.Characteristic;
     const existing = this.accessory.getService(S.LightSensor);
-    const service = existing ?? this.accessory.addService(S.LightSensor, sanitizeHapName(`${this.cfg.name} Light`, 'FP2 Light'));
+    const lightName = sanitizeHapName(this.cfg.lightSensorName ?? `${this.cfg.name} Light`, 'FP2 Light');
+    const service = existing ?? this.accessory.addService(S.LightSensor, lightName);
+    service.setCharacteristic(C.Name, lightName);
     service.getCharacteristic(C.CurrentAmbientLightLevel).onGet(() => toHapLux(this.client.getState().lightLevel));
     return service;
   }
@@ -228,6 +230,6 @@ export class Fp2Accessory {
   }
 
   private zoneDisplayName(name: string): string {
-    return `${this.cfg.name} ${name}`.trim();
+    return (this.cfg.zoneNames?.[name] ?? `${this.cfg.name} ${name}`).trim();
   }
 }

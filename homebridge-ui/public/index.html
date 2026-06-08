@@ -5,7 +5,7 @@
     <li data-step="discover">Find device</li>
     <li data-step="pin">Setup code</li>
     <li data-step="name">Name</li>
-    <li data-step="options">Options</li>
+    <li data-step="services">Services</li>
     <li data-step="confirm">Confirm</li>
   </ol>
 </nav>
@@ -40,6 +40,9 @@
         <div class="actions">
           <button type="button" class="btn ghost" id="manual-entry-btn">
             Enter details manually instead
+          </button>
+          <button type="button" class="btn" id="rescan-btn-main">
+            Scan again
           </button>
         </div>
       </section>
@@ -86,7 +89,8 @@
         <p id="pin-help" class="hint">
           Any common format works — <code>2871-7054</code>,
           <code>28717054</code>, or <code>287-17-054</code> will all be
-          accepted and converted to the HAP standard form.
+          accepted and converted to the HAP standard form. On Next, the wizard
+          pairs with the FP2 to read its sensors — this can take a few seconds.
         </p>
         <p id="pin-error" class="error" hidden></p>
 
@@ -126,13 +130,21 @@
         </div>
       </section>
 
-      <!-- Step 4: Options -->
-      <section class="step" data-step="options" hidden>
-        <h2>Options</h2>
-        <p class="muted">
-          Sensible defaults — change later if needed.
+      <!-- Step 4: Services & names -->
+      <section class="step" data-step="services" hidden>
+        <h2>Services &amp; names</h2>
+        <p class="muted" id="services-intro">
+          These are the sensors found on your FP2. Rename any of them for the
+          Home app, or turn whole groups off. Sensible defaults are filled in.
         </p>
 
+        <!-- Main occupancy -->
+        <label class="field" id="main-name-field">
+          <span>Main occupancy sensor</span>
+          <input type="text" id="name-main" autocomplete="off" maxlength="40" />
+        </label>
+
+        <!-- Zones -->
         <label class="toggle">
           <input type="checkbox" id="opt-zones" checked />
           <span class="toggle-body">
@@ -143,7 +155,9 @@
             </span>
           </span>
         </label>
+        <div id="zone-names"></div>
 
+        <!-- Light -->
         <label class="toggle">
           <input type="checkbox" id="opt-lux" checked />
           <span class="toggle-body">
@@ -154,10 +168,16 @@
             </span>
           </span>
         </label>
+        <label class="field" id="light-name-field">
+          <span>Light sensor name</span>
+          <input type="text" id="name-light" autocomplete="off" maxlength="40" />
+        </label>
+
+        <p id="services-error" class="error" hidden></p>
 
         <div class="actions">
           <button type="button" class="btn ghost" data-back>Back</button>
-          <button type="button" class="btn primary" id="options-next-btn">
+          <button type="button" class="btn primary" id="services-next-btn">
             Next
           </button>
         </div>
@@ -167,39 +187,26 @@
       <section class="step" data-step="confirm" hidden>
         <h2>Review and save</h2>
         <p class="muted">
-          On save, this device will be added to your Homebridge config. The
-          plugin will pair with the FP2 on the next Homebridge restart.
+          This device will be added to your Homebridge config.
+          <strong>Finish</strong> saves and restarts the bridge to apply the
+          changes; <strong>Save &amp; add another</strong> saves and returns to
+          the scan so you can set up more FP2s before restarting.
         </p>
 
         <pre id="config-preview" class="preview" aria-label="Config preview"></pre>
 
         <p id="save-error" class="error" hidden></p>
+        <p id="restart-error" class="error" hidden></p>
 
         <div class="actions">
           <button type="button" class="btn ghost" data-back>Back</button>
-          <button type="button" class="btn primary" id="save-btn">
-            Save device
+          <button type="button" class="btn" id="save-another-btn">
+            Save &amp; add another
+          </button>
+          <button type="button" class="btn primary" id="finish-btn">
+            Finish
           </button>
         </div>
       </section>
 
-      <!-- Done -->
-      <section class="step" data-step="done" hidden>
-        <h2>✓ Device added</h2>
-        <p>
-          <strong id="done-name"></strong> has been saved to your Homebridge
-          config. Restart the child bridge for the plugin to pair with the
-          FP2 and expose its services.
-        </p>
-        <p id="restart-error" class="error" hidden></p>
-        <div class="actions">
-          <button type="button" class="btn ghost" id="add-another-btn">
-            Add another FP2
-          </button>
-          <button type="button" class="btn primary" id="restart-btn">
-            Restart &amp; Finish
-          </button>
-        </div>
-      </section>
-    
     <script type="module" src="wizard.js"></script>

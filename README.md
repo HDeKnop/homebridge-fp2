@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/HDeKnop/homebridge-fp2/actions/workflows/ci.yml/badge.svg)](https://github.com/HDeKnop/homebridge-fp2/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Homebridge](https://img.shields.io/badge/Homebridge-1.8%20%7C%202.0-blue)](https://homebridge.io)
-[![Node](https://img.shields.io/badge/node-%3E%3D18.20-brightgreen)](package.json)
+[![Homebridge](https://img.shields.io/badge/Homebridge-2.0-blue)](https://homebridge.io)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 
 Homebridge plugin for the **Aqara Presence Sensor FP2**. Surfaces the
 mmWave presence detection, light level, and per-zone occupancy as native
@@ -13,6 +13,15 @@ HomeKit services through HAP-over-WiFi.
 > killer feature configured in the Aqara app — are _not_ exposed to
 > HomeKit. This plugin exposes each zone as its own Occupancy Sensor so
 > you can build per-area automations.
+
+> **A friendly heads-up:** I'm a hobbyist, not a professional developer —
+> this plugin is very much a learning project that happens to work for my
+> own FP2s. It's shared in the hope it's useful to others. I'd genuinely
+> love to hear your feedback, and I'm happy to adopt improvements, fixes,
+> and ideas from anyone who knows better. Please open an
+> [issue](https://github.com/HDeKnop/homebridge-fp2/issues), start a
+> [discussion](https://github.com/HDeKnop/homebridge-fp2/discussions), or
+> send a pull request — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Features
 
@@ -28,8 +37,8 @@ HomeKit services through HAP-over-WiFi.
 
 ## Requirements
 
-- Homebridge **2.0** (also supports 1.8+)
-- Node **18.20+**
+- Homebridge **2.0**
+- Node **22 or 24**
 - An FP2 reachable on the local network with mDNS / Bonjour traffic allowed
 
 ## Install
@@ -51,19 +60,31 @@ wizard takes you through:
 1. **Discover** — scans your network via mDNS for Aqara FP2 devices.
    Each candidate is shown with its mDNS name, IP, port, and pairing
    status. Devices already claimed by another controller are flagged
-   with the workaround.
+   with the workaround. A **Scan again** button re-runs discovery in
+   case a sensor didn't surface on the first pass.
 2. **Setup code** — accepts the pin in any common format (sticker
    `XXXX-XXXX`, plain `XXXXXXXX`, or HAP canonical `XXX-XX-XXX`) and
-   normalises it.
+   normalises it. On **Next**, the wizard pairs with the FP2 live — this
+   validates the pin immediately and reads the device's actual sensors.
 3. **Name** — what the device shows up as in the Home app. Validated
    against HomeKit's stricter 2.0 naming rules so you don't end up with
    "No Response".
-4. **Options** — zone exposure and light-sensor exposure toggles.
+4. **Services & names** — lists the sensors found on the FP2 (the main
+   occupancy sensor, each per-zone sensor, and the light sensor) and lets
+   you rename any of them for the Home app, or toggle whole groups off.
 5. **Confirm** — shows the exact JSON block being added to your
-   Homebridge config, then writes it via the UI API.
+   Homebridge config. **Finish** saves and restarts the bridge to apply
+   the changes; **Save & add another** saves and returns to the scan so
+   you can set up more FP2s before restarting.
 
 If the wizard's discovery doesn't surface your FP2, an
 **"Enter details manually"** path lets you type the identifier yourself.
+In that case the live pairing/rename step is skipped and the FP2 is
+paired when Homebridge next restarts.
+
+The pairing performed during the wizard is saved to the same store the
+plugin reads at runtime, so it's reused on the next start rather than
+pairing a second time.
 
 ## Pairing the FP2
 
@@ -119,6 +140,9 @@ Or use the **Homebridge Config UI** — the schema renders a form.
 | `pin`                 | string   | —       | Setup pin `###-##-###` (required, first run only)                          |
 | `exposeZones`         | bool     | `true`  | Create per-zone Occupancy sensors                                          |
 | `exposeLightSensor`   | bool     | `true`  | Create Light Sensor service                                                |
+| `mainSensorName`      | string   | `name`  | Custom HomeKit name for the main occupancy sensor                          |
+| `lightSensorName`     | string   | `<name> Light` | Custom HomeKit name for the light sensor                            |
+| `zoneNames`           | object   | `{}`    | Per-zone name overrides, keyed by the Aqara zone name (e.g. `{ "Desk": "Office Desk" }`) |
 | `pollIntervalSeconds` | int      | `30`    | Fallback poll. Real-time uses HAP events                                   |
 | `excludedZones`       | string[] | `[]`    | Zone names (Aqara app) to skip                                             |
 | `debug`               | bool     | `false` | Verbose logs                                                               |
@@ -150,6 +174,11 @@ Aqara app is what you'll see in HomeKit.
 
 Removing a zone in Aqara → restart Homebridge → that sensor disappears
 from HomeKit. Renaming a zone changes the HomeKit accessory's name.
+
+To give a zone a different HomeKit name than its Aqara name, set a
+`zoneNames` override (or use the setup wizard's **Services & names** step).
+The override is keyed by the Aqara zone name, so if you later rename the
+zone in the Aqara app you'll need to update the key.
 
 ## Troubleshooting
 

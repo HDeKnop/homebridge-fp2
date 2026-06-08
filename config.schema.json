@@ -61,6 +61,22 @@
               "type": "boolean",
               "default": true
             },
+            "mainSensorName": {
+              "title": "Main sensor name",
+              "type": "string",
+              "description": "Custom HomeKit name for the main occupancy sensor. Defaults to the display name."
+            },
+            "lightSensorName": {
+              "title": "Light sensor name",
+              "type": "string",
+              "description": "Custom HomeKit name for the light sensor. Defaults to \"<name> Light\"."
+            },
+            "zoneNames": {
+              "title": "Zone name overrides",
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Per-zone HomeKit name overrides, keyed by the zone name configured in the Aqara app. Defaults to \"<name> <zone>\" for any zone without an override."
+            },
             "pollIntervalSeconds": {
               "title": "Poll interval (seconds)",
               "type": "integer",
