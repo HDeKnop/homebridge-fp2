@@ -67,6 +67,34 @@ export class PairingStore {
     return null;
   }
 
+  /**
+   * Return every stored pairing in the store. Used by the setup wizard to tell
+   * which discovered FP2s this plugin has already paired (so it can offer
+   * "Configure" rather than a doomed re-pair). Skips unreadable / unparseable
+   * files rather than failing the whole listing.
+   */
+  async listAll(): Promise<StoredPairing[]> {
+    const { readdir } = await import('node:fs/promises');
+    let entries: string[];
+    try {
+      entries = await readdir(this.baseDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    const records: StoredPairing[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue;
+      try {
+        const raw = await readFile(join(this.baseDir, entry), 'utf8');
+        records.push(JSON.parse(raw) as StoredPairing);
+      } catch {
+        continue;
+      }
+    }
+    return records;
+  }
+
   async save(record: StoredPairing): Promise<void> {
     const file = this.fileFor(record.host);
     await mkdir(dirname(file), { recursive: true });

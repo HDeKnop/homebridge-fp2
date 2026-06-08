@@ -23,6 +23,7 @@ import { HttpClient, IPDiscovery } from 'hap-controller';
 // the wizard's pairing identical to what the runtime plugin reads back.
 import { parseAccessories } from '../dist/parser.js';
 import { PairingStore } from '../dist/pairing-store.js';
+import { normalizeDeviceId } from '../dist/mappers.js';
 import { STORAGE_SUBDIR } from '../dist/settings.js';
 
 /** Aqara FP2 mDNS model identifier. Filter discovery to just these. */
@@ -39,6 +40,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     this.onRequest('/discover', this.handleDiscover.bind(this));
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
+    this.onRequest('/inspect', this.handleInspect.bind(this));
     this.onRequest('/restart-bridge', this.handleRestartBridge.bind(this));
 
     // Tell the parent UI we're ready to receive requests.
@@ -95,14 +97,95 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     return fp2s;
   }
 
+  /** The PairingStore the runtime plugin reads/writes, under the HB storage path. */
+  pairingStore() {
+    return new PairingStore(join(this.homebridgeStoragePath, STORAGE_SUBDIR));
+  }
+
   /**
    * Scan the LAN for `_hap._tcp` services, filter to Aqara FP2 devices, and
    * return one entry per device. Idempotent and safe to call repeatedly.
+   *
+   * Each device is annotated with `knownByUs`: true when this plugin already
+   * holds a stored pairing whose deviceId matches. The wizard uses this to tell
+   * "paired by this plugin" (offer Configure) apart from "paired by another
+   * controller" (Apple Home / Aqara — both report HAP status flag sf=0).
    */
   async handleDiscover() {
     const fp2s = await this.scanFp2s();
+
+    // Map normalized deviceId → stored pairing host, for devices we paired.
+    const known = new Map();
+    try {
+      for (const rec of await this.pairingStore().listAll()) {
+        const id = normalizeDeviceId(rec.deviceId)?.toLowerCase();
+        if (id) known.set(id, rec.host);
+      }
+    } catch {
+      /* store unreadable — treat everything as not-known-by-us */
+    }
+
+    const devices = [...fp2s.values()].map(dev => {
+      const id = normalizeDeviceId(dev.deviceId)?.toLowerCase();
+      const storedHost = id ? known.get(id) : undefined;
+      return { ...dev, knownByUs: storedHost !== undefined, storedHost: storedHost ?? null };
+    });
+
     return {
-      devices: [...fp2s.values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
+      devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
+    };
+  }
+
+  /**
+   * Read the service tree of an FP2 this plugin has already paired, using the
+   * stored pairing — no re-pair. Powers the wizard's "Configure" flow so the
+   * user can rename the main sensor, each zone, and the light sensor without
+   * touching the (already valid) pairing.
+   *
+   * Input: { host?, deviceId?, address?, port? }
+   *   - `host` is the config host the pairing was saved under (preferred key).
+   *   - `deviceId` is the fallback key (e.g. if config host changed).
+   *   - `address`/`port` from /discover override the stored host/port so we
+   *     reach the device at its current address.
+   *
+   * Returns { ok: true, deviceId, port, zones, light } or throws RequestError.
+   */
+  async handleInspect({ host, deviceId, address, port } = {}) {
+    const store = this.pairingStore();
+    let record = null;
+    if (host) record = await store.load(host).catch(() => null);
+    if (!record && deviceId) record = await store.findByDeviceId(deviceId).catch(() => null);
+    if (!record) {
+      throw new RequestError(
+        'No saved pairing was found for this FP2. It may have been paired by another ' +
+          'controller, or its pairing file was removed. Reset the device and add it as new.'
+      );
+    }
+
+    const targetAddress = address ?? record.host;
+    const targetPort = port ?? record.port;
+    const client = new HttpClient(record.deviceId, targetAddress, targetPort, record.pairing, {
+      usePersistentConnections: true,
+    });
+    let parsed;
+    try {
+      parsed = parseAccessories(await client.getAccessories());
+    } catch (err) {
+      await client.close().catch(() => undefined);
+      throw new RequestError(
+        'Could not reach the FP2 with its saved pairing: ' +
+          (err?.message ?? err) +
+          '. Check it is powered on and on the network.'
+      );
+    }
+    await client.close().catch(() => undefined);
+
+    return {
+      ok: true,
+      deviceId: record.deviceId,
+      port: targetPort,
+      zones: [...parsed.state.zones.values()].map(z => ({ name: z.name, slug: z.slug })),
+      light: { present: parsed.lightLevelIid !== null },
     };
   }
 

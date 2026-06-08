@@ -281,6 +281,11 @@ code, .mono {
   color: var(--warn-fg);
   border: 1px solid var(--warn-border);
 }
+.badge.info {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .device-warn {
   margin: 10px 0 12px;
   padding: 10px 12px;

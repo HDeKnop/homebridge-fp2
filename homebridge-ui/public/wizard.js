@@ -15,7 +15,9 @@ const PLATFORM_NAME = 'AqaraFP2';
 const STEP_ORDER = ['discover', 'pin', 'name', 'services', 'confirm'];
 
 const state = {
+  mode: 'pair',         // 'pair' (new device) | 'configure' (already paired by us)
   selectedDevice: null, // discovered service or {manual: true}
+  matchedConfigHost: null, // existing config `host` to edit in place (configure mode)
   pin: null,            // canonical HAP form
   name: null,
   deviceId: null,
@@ -44,10 +46,34 @@ function show(stepName) {
 }
 
 /* The host string the wizard will write as `host` in config — must match what
- * we hand to /pair so the saved pairing file is keyed identically. */
+ * we hand to /pair so the saved pairing file is keyed identically. In configure
+ * mode we reuse the existing config entry's host so the edit lands in place
+ * (the FP2 may have been added under an IP/.local host rather than its name). */
 function configHostFor(dev) {
+  if (state.matchedConfigHost) return state.matchedConfigHost;
   if (!dev) return '';
   return dev.manual ? dev.host : (dev.name ?? dev.host ?? '');
+}
+
+/* Fetch the AqaraFP2 device blocks currently in config, keyed for lookup by
+ * any identifier a discovered device might match (host, name, IP). */
+async function loadConfiguredDevices() {
+  try {
+    const all = await homebridge.getPluginConfig();
+    const platform = (all ?? []).find((p) => p.platform === PLATFORM_NAME);
+    return Array.isArray(platform?.devices) ? platform.devices : [];
+  } catch {
+    return [];
+  }
+}
+
+/* Find the config block for a discovered device, if one exists. Matches on the
+ * device's stored-pairing host (most reliable), then mDNS name / address. */
+function matchConfigBlock(dev, configured) {
+  const candidates = [dev.storedHost, dev.name, dev.host, ...(dev.allAddresses ?? [])]
+    .filter(Boolean)
+    .map((s) => s.toLowerCase());
+  return configured.find((b) => b.host && candidates.includes(b.host.toLowerCase())) ?? null;
 }
 
 /* ─── Step 1: Discover ─────────────────────────────────────────────── */
@@ -63,7 +89,12 @@ async function runDiscover() {
   emptyEl.hidden = true;
 
   try {
-    const { devices } = await homebridge.request('/discover');
+    // The UI server can take a moment to come up right after a bridge restart;
+    // a plain request would then spin forever. Bound it and surface a retry.
+    const [{ devices }, configured] = await Promise.all([
+      withTimeout(homebridge.request('/discover'), 25_000, 'discover'),
+      loadConfiguredDevices(),
+    ]);
     statusEl.hidden = true;
 
     if (!devices.length) {
@@ -72,14 +103,28 @@ async function runDiscover() {
     }
 
     for (const dev of devices) {
+      const block = matchConfigBlock(dev, configured);
+      // Three states: configured here (we hold the pairing or have a config
+      // entry) → Configure; paired by another controller (sf=0, not ours) →
+      // blocked with reset guidance; otherwise available → pair as new.
+      const category = dev.knownByUs || block ? 'configured' : !dev.availableToPair ? 'claimed' : 'available';
+      dev._configBlock = block;
+      dev._category = category;
+
       const li = document.createElement('li');
       li.className = 'device';
-      const claimed = !dev.availableToPair;
-      const statusLabel = claimed ? 'Already paired' : 'Available';
+      const badge =
+        category === 'configured'
+          ? '<span class="badge info">Set up here</span>'
+          : category === 'claimed'
+            ? '<span class="badge warn">Paired elsewhere</span>'
+            : '<span class="badge ok">Available</span>';
+      const displayName = block?.name ?? dev.name ?? 'Unknown FP2';
+
       li.innerHTML = `
         <div class="device-row">
           <div class="device-main">
-            <div class="device-name">${escapeHtml(dev.name ?? 'Unknown FP2')}</div>
+            <div class="device-name">${escapeHtml(displayName)}</div>
             <div class="device-meta">
               <span>${escapeHtml(dev.host)}</span>
               <span aria-hidden="true">·</span>
@@ -88,19 +133,27 @@ async function runDiscover() {
               <span class="mono">${escapeHtml(dev.deviceId)}</span>
             </div>
           </div>
-          <span class="badge ${claimed ? 'warn' : 'ok'}">${statusLabel}</span>
+          ${badge}
         </div>
         ${
-          claimed
-            ? `<p class="device-warn">This FP2 is claimed by another controller.
+          category === 'claimed'
+            ? `<p class="device-warn">This FP2 is paired with another controller.
                  Open <strong>Aqara Home</strong> → tap the FP2 → and either
                  use <em>Remove from Home</em>, or factory-reset the device
-                 (10-second long-press) before pairing here.</p>`
+                 (10-second long-press) before adding it here.</p>`
             : ''
         }
-        <button type="button" class="btn primary device-pick" data-device-id="${escapeHtml(dev.deviceId)}">
-          Use this device
-        </button>
+        ${
+          category === 'configured'
+            ? `<button type="button" class="btn primary device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
+                 Configure this device
+               </button>`
+            : category === 'available'
+              ? `<button type="button" class="btn primary device-pick" data-device-id="${escapeHtml(dev.deviceId)}">
+                   Use this device
+                 </button>`
+              : ''
+        }
       `;
       listEl.appendChild(li);
     }
@@ -108,9 +161,10 @@ async function runDiscover() {
 
     listEl.querySelectorAll('.device-pick').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const id = btn.dataset.deviceId;
-        const dev = devices.find((d) => d.deviceId === id);
+        const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
         if (!dev) return;
+        state.mode = 'pair';
+        state.matchedConfigHost = null;
         state.selectedDevice = dev;
         state.name = suggestDefaultName(dev);
         $('#manual-host-field').hidden = true;
@@ -118,12 +172,80 @@ async function runDiscover() {
         $('#pin-input').focus();
       });
     });
+
+    listEl.querySelectorAll('.device-configure').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
+        if (dev) enterConfigure(dev);
+      });
+    });
   } catch (err) {
     statusEl.hidden = true;
     emptyEl.hidden = false;
-    emptyEl.querySelector('h3').textContent = 'Discovery failed';
-    emptyEl.querySelector('p').textContent =
-      (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
+    emptyEl.querySelector('h3').textContent = err?.timedOut ? 'Scan timed out' : 'Discovery failed';
+    emptyEl.querySelector('p').textContent = err?.timedOut
+      ? 'The setup server may still be starting up after a restart. Wait a moment and scan again.'
+      : (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
+  }
+}
+
+/* Reject with a {timedOut:true} error if `promise` doesn't settle in `ms`. */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => {
+        const e = new Error(`Timed out waiting for ${label}.`);
+        e.timedOut = true;
+        reject(e);
+      }, ms)
+    ),
+  ]);
+}
+
+/* ─── Configure an already-paired device (rename without re-pairing) ──── */
+
+async function enterConfigure(dev) {
+  const block = dev._configBlock ?? {};
+  state.mode = 'configure';
+  state.selectedDevice = dev;
+  state.matchedConfigHost = block.host ?? configHostFor(dev);
+  state.deviceId = dev.deviceId ?? null;
+  state.port = dev.port ?? null;
+  state.pin = block.pin ?? null; // preserved as-is; we don't re-pair
+  state.name = block.name ?? suggestDefaultName(dev);
+  state.options = {
+    exposeZones: block.exposeZones !== false,
+    exposeLightSensor: block.exposeLightSensor !== false,
+  };
+  state.names = {
+    main: block.mainSensorName ?? null,
+    light: block.lightSensorName ?? null,
+    zones: { ...(block.zoneNames ?? {}) },
+  };
+
+  homebridge.showSpinner();
+  try {
+    const res = await homebridge.request('/inspect', {
+      host: state.matchedConfigHost,
+      deviceId: dev.deviceId,
+      address: dev.host,
+      port: dev.port,
+    });
+    homebridge.hideSpinner();
+    state.services = { zones: res.zones ?? [], light: res.light ?? { present: false } };
+    if (res.deviceId) state.deviceId = res.deviceId;
+    if (res.port) state.port = res.port;
+    $('#opt-zones').checked = state.options.exposeZones;
+    $('#opt-lux').checked = state.options.exposeLightSensor;
+    renderServices();
+    show('services');
+  } catch (err) {
+    homebridge.hideSpinner();
+    homebridge.toast.error(
+      err?.message ?? 'Could not read the FP2 with its saved pairing.',
+      'Cannot configure'
+    );
   }
 }
 
@@ -345,8 +467,10 @@ function buildDeviceBlock() {
   const block = {
     name: state.name,
     host,
-    pin: state.pin,
   };
+  // In configure mode we don't re-pair; only include pin when we have one so a
+  // missing value can't overwrite the existing entry's pin on the merge in save().
+  if (state.pin) block.pin = state.pin;
   // Only emit non-default option values to keep config.json tidy.
   if (!state.options.exposeZones) block.exposeZones = false;
   if (!state.options.exposeLightSensor) block.exposeLightSensor = false;
@@ -468,7 +592,9 @@ function escapeHtml(s) {
 /* ─── Wire up ──────────────────────────────────────────────────────── */
 
 function resetWizard() {
+  state.mode = 'pair';
   state.selectedDevice = null;
+  state.matchedConfigHost = null;
   state.pin = null;
   state.name = null;
   state.deviceId = null;
@@ -521,6 +647,12 @@ function init() {
   $$('[data-back]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const cur = $$('.step').find((s) => !s.hidden)?.dataset.step;
+      // Configure mode jumps straight from discover → services, so Back from
+      // services returns to discover rather than the skipped pin/name steps.
+      if (state.mode === 'configure' && cur === 'services') {
+        show('discover');
+        return;
+      }
       const i = STEP_ORDER.indexOf(cur);
       if (i > 0) show(STEP_ORDER[i - 1]);
     });

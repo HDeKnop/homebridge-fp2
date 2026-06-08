@@ -7,6 +7,29 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-08
+
+### Added
+
+- **"Configure this device" flow for already-paired FP2s.** The discovery step
+  now recognises FP2s this plugin has already paired (matched by HAP deviceId
+  against the stored pairings) and labels them **Set up here**. Picking one opens
+  a new `/inspect` UI-server endpoint that reads the device's services using the
+  existing pairing — no re-pair — and jumps straight to the **Services & names**
+  step with the current names pre-filled, so the main sensor, each zone, and the
+  light sensor can be renamed without re-entering the setup code.
+- `PairingStore.listAll()` to enumerate stored pairings.
+
+### Changed
+
+- **Discovery now distinguishes three states** instead of just paired/available:
+  *Set up here* (paired by this plugin → Configure), *Paired elsewhere* (paired
+  to another controller such as Apple Home/Aqara → reset guidance, no pick), and
+  *Available* (→ Use this device). Previously every paired FP2 — including those
+  this plugin owns — was shown as "claimed by another controller".
+- The discovery request now times out (25s) and prompts a retry instead of
+  spinning indefinitely when the UI server is still starting after a restart.
+
 ## [0.3.0] — 2026-06-08
 
 ### Added
