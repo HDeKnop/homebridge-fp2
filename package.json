@@ -57,7 +57,7 @@
     "hap"
   ],
   "dependencies": {
-    "@homebridge/plugin-ui-utils": "^2.0.0",
+    "@homebridge/plugin-ui-utils": "^2.2.4",
     "hap-controller": "^0.10.0"
   },
   "overrides": {
