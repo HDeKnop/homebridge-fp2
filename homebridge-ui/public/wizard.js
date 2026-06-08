@@ -76,6 +76,34 @@ function matchConfigBlock(dev, configured) {
   return configured.find((b) => b.host && candidates.includes(b.host.toLowerCase())) ?? null;
 }
 
+/* A configured FP2 the live scan didn't surface this round. Rendered so it's
+ * always reachable for reconfiguration; Configure still requires it to be
+ * online (the pairing read goes over the network). */
+function renderOfflineDevice(block) {
+  const li = document.createElement('li');
+  li.className = 'device';
+  li.innerHTML = `
+    <div class="device-row">
+      <div class="device-main">
+        <div class="device-name">${escapeHtml(block.name ?? block.host)}</div>
+        <div class="device-meta">
+          <span>${escapeHtml(block.host)}</span>
+          <span aria-hidden="true">·</span>
+          <span>not detected right now</span>
+        </div>
+      </div>
+      <span class="badge info">Set up here</span>
+    </div>
+    <p class="hint">In your config but it didn't answer the scan just now — it may be
+       slow to announce or briefly offline. Configure still needs it reachable to
+       read its sensors.</p>
+    <button type="button" class="btn primary device-configure-offline" data-config-host="${escapeHtml(block.host)}">
+      Configure this device
+    </button>
+  `;
+  return li;
+}
+
 /* ─── Step 1: Discover ─────────────────────────────────────────────── */
 
 async function runDiscover() {
@@ -92,18 +120,18 @@ async function runDiscover() {
     // The UI server can take a moment to come up right after a bridge restart;
     // a plain request would then spin forever. Bound it and surface a retry.
     const [{ devices }, configured] = await Promise.all([
-      withTimeout(homebridge.request('/discover'), 25_000, 'discover'),
+      withTimeout(homebridge.request('/discover'), 30_000, 'discover'),
       loadConfiguredDevices(),
     ]);
     statusEl.hidden = true;
 
-    if (!devices.length) {
-      emptyEl.hidden = false;
-      return;
-    }
+    // Config blocks rendered via a live (discovered) device; the remainder are
+    // appended afterwards as "configured but not detected right now".
+    const matchedBlocks = new Set();
 
     for (const dev of devices) {
       const block = matchConfigBlock(dev, configured);
+      if (block) matchedBlocks.add(block);
       // Three states: configured here (we hold the pairing or have a config
       // entry) → Configure; paired by another controller (sf=0, not ours) →
       // blocked with reset guidance; otherwise available → pair as new.
@@ -157,7 +185,27 @@ async function runDiscover() {
       `;
       listEl.appendChild(li);
     }
+
+    // Always list FP2s already in config, even if the scan missed them this
+    // round (a briefly-offline or slow-to-announce device) — a configured
+    // device should never silently disappear from setup.
+    const offlineBlocks = configured.filter((b) => b.host && !matchedBlocks.has(b));
+    for (const block of offlineBlocks) {
+      listEl.appendChild(renderOfflineDevice(block));
+    }
+
+    if (devices.length + offlineBlocks.length === 0) {
+      emptyEl.hidden = false;
+      return;
+    }
     listEl.hidden = false;
+
+    listEl.querySelectorAll('.device-configure-offline').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const block = configured.find((b) => b.host === btn.dataset.configHost);
+        if (block) enterConfigure({ name: block.name, host: null, port: block.port ?? null, deviceId: null, _configBlock: block, _offline: true });
+      });
+    });
 
     listEl.querySelectorAll('.device-pick').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -228,9 +276,11 @@ async function enterConfigure(dev) {
   try {
     const res = await homebridge.request('/inspect', {
       host: state.matchedConfigHost,
-      deviceId: dev.deviceId,
-      address: dev.host,
-      port: dev.port,
+      deviceId: dev.deviceId ?? undefined,
+      // For a not-discovered device we have no current address — let the server
+      // fall back to the stored pairing's host/port rather than passing nulls.
+      address: dev._offline ? undefined : dev.host,
+      port: dev._offline ? undefined : dev.port,
     });
     homebridge.hideSpinner();
     state.services = { zones: res.zones ?? [], light: res.light ?? { present: false } };
@@ -242,10 +292,10 @@ async function enterConfigure(dev) {
     show('services');
   } catch (err) {
     homebridge.hideSpinner();
-    homebridge.toast.error(
-      err?.message ?? 'Could not read the FP2 with its saved pairing.',
-      'Cannot configure'
-    );
+    const msg = dev._offline
+      ? `${state.name} isn't responding on the network right now. Check it's powered on and on Wi-Fi, then Scan again to reconfigure it.`
+      : (err?.message ?? 'Could not read the FP2 with its saved pairing.');
+    homebridge.toast.error(msg, 'Cannot configure');
   }
 }
 

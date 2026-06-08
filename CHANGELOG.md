@@ -7,6 +7,22 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-06-08
+
+### Fixed
+
+- **Configured FP2s are now always listed in discovery**, even when the mDNS
+  scan doesn't surface them that round (briefly offline or slow to announce).
+  Previously a configured device that missed the scan window simply vanished
+  from setup. Such devices appear as *Set up here* with a "not detected right
+  now" note; **Configure** still works once the device is reachable, and gives a
+  clear "not responding right now" message when it isn't.
+- **Discovery now runs two browse rounds (~12s) instead of one 8s window.** Each
+  round is a fresh multicast query, so an FP2 whose announcement is lost to WiFi
+  packet loss in the first round gets another chance — fixing flaky FP2s that
+  intermittently failed to appear. The client request timeout was raised to 30s
+  to accommodate the longer scan.
+
 ## [0.4.0] — 2026-06-08
 
 ### Added

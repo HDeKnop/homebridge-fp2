@@ -28,10 +28,15 @@ import { STORAGE_SUBDIR } from '../dist/settings.js';
 
 /** Aqara FP2 mDNS model identifier. Filter discovery to just these. */
 const FP2_MODEL = 'PS-S02D';
-/** Window we listen for mDNS announcements. Bonjour caches make 8s a sweet
- *  spot — long enough for cold caches on the first wizard load, short enough
- *  that the user doesn't think the UI hung. */
-const DISCOVERY_WINDOW_MS = 8_000;
+/** Per-round mDNS browse window. Each round spins up a fresh IPDiscovery (a
+ *  fresh multicast query burst), so a device whose announcement was lost to
+ *  WiFi multicast packet loss in one round gets another chance in the next.
+ *  A single long window can't do that — it just waits on the dropped packet. */
+const DISCOVERY_ROUND_MS = 6_000;
+/** Number of browse rounds per /discover. Two rounds (~12s) reliably catches
+ *  flaky announcers (some FP2s only surface on the 2nd query) while staying
+ *  well inside the wizard's client-side request timeout. */
+const DISCOVERY_ROUNDS = 2;
 
 class Fp2UiServer extends HomebridgePluginUiServer {
   constructor() {
@@ -51,19 +56,13 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    * Run a single mDNS browse round and return every Aqara FP2 seen, keyed by
    * HAP deviceId. Shared by /discover and /pair so both see the same shape.
    */
-  async scanFp2s(windowMs = DISCOVERY_WINDOW_MS) {
-    let discovery;
-    try {
-      discovery = new IPDiscovery();
-    } catch (err) {
-      throw new RequestError('Could not initialise mDNS discovery: ' + (err?.message ?? err));
-    }
-
+  async scanFp2s(rounds = DISCOVERY_ROUNDS, roundMs = DISCOVERY_ROUND_MS) {
     const fp2s = new Map();
     const onUp = svc => {
       if (!svc || svc.md !== FP2_MODEL) return;
       // De-dupe by HAP deviceId — the same FP2 sometimes announces on
-      // multiple interfaces and we only want one row in the UI.
+      // multiple interfaces and we only want one row in the UI. A later round
+      // overwrites with fresher address/flags, which is what we want.
       fp2s.set(svc.id, {
         name: svc.name,
         host: svc.address,
@@ -78,22 +77,31 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       });
     };
 
-    discovery.on('serviceUp', onUp);
-    try {
-      discovery.start();
-    } catch (err) {
-      throw new RequestError('mDNS discovery failed to start: ' + (err?.message ?? err));
+    let initError;
+    for (let round = 0; round < rounds; round++) {
+      let discovery;
+      try {
+        discovery = new IPDiscovery();
+        discovery.on('serviceUp', onUp);
+        discovery.start();
+      } catch (err) {
+        // Remember the first failure but keep trying further rounds; only
+        // surface it if every round failed and we found nothing.
+        initError ??= err;
+        continue;
+      }
+      await new Promise(resolve => setTimeout(resolve, roundMs));
+      try {
+        discovery.stop();
+      } catch {
+        /* noop */
+      }
+      discovery.removeAllListeners('serviceUp');
     }
 
-    await new Promise(resolve => setTimeout(resolve, windowMs));
-
-    try {
-      discovery.stop();
-    } catch {
-      /* noop */
+    if (fp2s.size === 0 && initError) {
+      throw new RequestError('Could not run mDNS discovery: ' + (initError?.message ?? initError));
     }
-    discovery.removeAllListeners('serviceUp');
-
     return fp2s;
   }
 
