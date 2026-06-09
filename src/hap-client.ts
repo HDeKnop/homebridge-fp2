@@ -3,10 +3,11 @@ import { EventEmitter } from 'node:events';
 import type { Logging } from 'homebridge';
 import type { PairingData } from 'hap-controller';
 
+import { raceWithTimeout } from './async-util.js';
 import { discoverFp2ByHost } from './discovery.js';
 import { PairingStore } from './pairing-store.js';
 import { type Accessories, parseAccessories } from './parser.js';
-import { DISCOVERY_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS } from './settings.js';
+import { DISCOVERY_TIMEOUT_MS, HAP_CALL_TIMEOUT_MS, RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, WATCHDOG_INTERVAL_MS } from './settings.js';
 import type { Fp2DeviceConfig, Fp2State } from './types.js';
 
 interface HapEventMessage {
@@ -49,6 +50,10 @@ export class Fp2HapClient extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = RECONNECT_INITIAL_MS;
   private pollTimer: NodeJS.Timeout | null = null;
+  private watchdogTimer: NodeJS.Timeout | null = null;
+  /** True while a connect() attempt is in flight, so overlapping triggers
+   *  (reconnect timer firing, watchdog, poll-failure) can't race two connects. */
+  private connecting = false;
   private closed = false;
   private primaryOccupancyIid: number | null = null;
   private lightLevelIid: number | null = null;
@@ -96,7 +101,8 @@ export class Fp2HapClient extends EventEmitter {
   /** Establish (or re-establish) the HAP session. Auto-pairs on first use,
    *  recovers from stale pairings by re-running pair-setup. */
   async connect(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed || this.connecting) return;
+    this.connecting = true;
     this.detachClient();
     try {
       await this.connectWithRecovery(/* allowRepair */ true);
@@ -105,7 +111,23 @@ export class Fp2HapClient extends EventEmitter {
       this.log.warn(`[${this.cfg.name}] connection failed: ${(err as Error).message}`);
       this.emit('error', err as Error);
       this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
+  }
+
+  /**
+   * Race a HAP network call against a hard timeout. hap-controller offers no
+   * per-request timeout, so a stalled FP2 connection would otherwise leave the
+   * await pending forever and wedge connect()/pollOnce(). On timeout this
+   * rejects; the caller's existing error path handles teardown — connect()
+   * detaches the stale client at the start of the next attempt and
+   * handleDisconnect() closes it on a poll failure. (Promise.race keeps a
+   * reaction attached to `work`, so a late rejection from the abandoned call is
+   * absorbed rather than surfacing as an unhandled rejection.)
+   */
+  private withTimeout<T>(label: string, work: Promise<T>): Promise<T> {
+    return raceWithTimeout(`[${this.cfg.name}] ${label}`, work, HAP_CALL_TIMEOUT_MS);
   }
 
   /** Inner connect — optionally clears stale credentials and re-pairs. */
@@ -183,7 +205,7 @@ export class Fp2HapClient extends EventEmitter {
         usePersistentConnections: true,
       });
       try {
-        const accessories = await this.client.getAccessories();
+        const accessories = await this.withTimeout('getAccessories', this.client.getAccessories());
         this.parseAccessories(accessories);
         // Refresh stored host/port whenever mDNS surfaces a fresh value.
         if (discovered && (discovered.port !== stored.port || discovered.address !== stored.host)) {
@@ -279,7 +301,7 @@ export class Fp2HapClient extends EventEmitter {
       this.client = new HttpClient(deviceId, address, port, pairing, {
         usePersistentConnections: true,
       });
-      const accessories = await this.client.getAccessories();
+      const accessories = await this.withTimeout('getAccessories', this.client.getAccessories());
       this.parseAccessories(accessories);
     }
 
@@ -308,7 +330,7 @@ export class Fp2HapClient extends EventEmitter {
     }
 
     try {
-      await this.client.subscribeCharacteristics(ids);
+      await this.withTimeout('subscribeCharacteristics', this.client.subscribeCharacteristics(ids));
     } catch (err) {
       this.log.warn(`[${this.cfg.name}] subscribe failed (${(err as Error).message}); polling will be sole update path`);
       return;
@@ -341,6 +363,24 @@ export class Fp2HapClient extends EventEmitter {
     }, intervalSeconds * 1000);
   }
 
+  /**
+   * Safety net for a wedged connection. If we're unreachable but nothing is
+   * scheduled to fix it — no reconnect timer pending, no connect in flight, not
+   * closed or terminally failed — force a fresh connect. Covers any future
+   * "in-flight forever" gap a per-call timeout doesn't, so the plugin never sits
+   * dead until a manual restart.
+   */
+  startWatchdog(): void {
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = setInterval(() => {
+      if (this.closed || this.connecting || this.reconnectTimer || this.terminalReason) return;
+      if (!this.state.reachable) {
+        this.log.debug(`[${this.cfg.name}] watchdog: unreachable with no reconnect pending — forcing connect`);
+        void this.connect();
+      }
+    }, WATCHDOG_INTERVAL_MS);
+  }
+
   private async pollOnce(): Promise<void> {
     if (!this.client || this.closed) return;
     try {
@@ -349,7 +389,7 @@ export class Fp2HapClient extends EventEmitter {
       if (this.lightLevelIid) ids.push(`1.${this.lightLevelIid}`);
       for (const z of this.state.zones.values()) ids.push(`${z.aid}.${z.occupancyIid}`);
       if (ids.length === 0) return;
-      const result = await this.client.getCharacteristics(ids);
+      const result = await this.withTimeout('getCharacteristics', this.client.getCharacteristics(ids));
       for (const ch of result.characteristics ?? []) {
         if (typeof ch.aid === 'number' && typeof ch.iid === 'number') {
           this.applyCharacteristicUpdate(ch.aid, ch.iid, ch.value);
@@ -443,6 +483,10 @@ export class Fp2HapClient extends EventEmitter {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
     }
     this.detachClient();
   }

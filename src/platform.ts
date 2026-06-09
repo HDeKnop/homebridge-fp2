@@ -94,6 +94,9 @@ export class FP2Platform implements DynamicPlatformPlugin {
 
       this.devices.push({ cfg: d, client, accessory, handler });
 
+      // Start the watchdog up front so a wedged/never-completing first connect
+      // still gets retried (it doesn't depend on connect() resolving).
+      client.startWatchdog();
       // Kick off connection. We deliberately do not await — Homebridge should
       // continue starting up even if a single FP2 is offline.
       void client.connect().then(() => {

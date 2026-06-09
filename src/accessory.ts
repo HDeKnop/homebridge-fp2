@@ -121,6 +121,11 @@ export class Fp2Accessory {
     const service = existing ?? this.accessory.addService(S.LightSensor, lightName);
     service.setCharacteristic(C.Name, lightName);
     service.getCharacteristic(C.CurrentAmbientLightLevel).onGet(() => toHapLux(this.client.getState().lightLevel));
+    // Live getter so the light sensor's StatusActive reflects current
+    // reachability on every read — matching the main occupancy sensor and zones.
+    // Without it the value only tracks the last pushed update and can read 0
+    // (stale) while the presence sensor reads 1.
+    service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
     return service;
   }
 

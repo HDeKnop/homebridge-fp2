@@ -13,6 +13,19 @@ export const DEFAULT_HAP_PORT = 80;
 export const RECONNECT_INITIAL_MS = 1_000;
 export const RECONNECT_MAX_MS = 60_000;
 
+/** Hard ceiling on any single HAP network call (getAccessories / subscribe /
+ *  getCharacteristics). hap-controller exposes no timeout, so a stalled FP2
+ *  connection would otherwise leave the awaiting promise pending forever —
+ *  wedging connect() so the reconnect backoff never fires. On expiry the call
+ *  rejects and the normal disconnect/reconnect path takes over. */
+export const HAP_CALL_TIMEOUT_MS = 15_000;
+
+/** Watchdog tick. If the client is unreachable with no reconnect already
+ *  scheduled (and not closed / terminally failed), the watchdog forces a fresh
+ *  connect — a safety net for any "in-flight forever" gap a per-call timeout
+ *  doesn't cover. */
+export const WATCHDOG_INTERVAL_MS = 60_000;
+
 /** Per-round mDNS browse window. Each round spins up a fresh IPDiscovery, i.e.
  *  a fresh multicast query burst. Re-querying in discrete rounds counters WiFi
  *  multicast packet loss (a single dropped response otherwise wastes the whole
