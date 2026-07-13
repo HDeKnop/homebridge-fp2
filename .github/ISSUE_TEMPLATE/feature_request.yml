@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an enhancement or new capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user-facing pain point, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: How would this work from the user's perspective? Config option? New HomeKit characteristic? Something else?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything you've already tried, or alternative designs you weighed.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Links to FP2 docs, HAP spec sections, other Homebridge plugins doing something similar, etc.

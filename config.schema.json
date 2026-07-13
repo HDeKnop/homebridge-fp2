@@ -1,0 +1,103 @@
+{
+  "pluginAlias": "AqaraFP2",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "customUiPath": "./homebridge-ui",
+  "headerDisplay": "Homebridge plugin for the Aqara Presence Sensor FP2. Exposes the main occupancy, light level, and per-zone occupancy services via HAP-over-WiFi. Requires the FP2 reset (10s long-press on its button) to obtain a fresh setup pin.",
+  "footerDisplay": "For setup, troubleshooting, and zone configuration see [the README](https://github.com/HDeKnop/homebridge-fp2#readme).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "AqaraFP2",
+        "required": true
+      },
+      "devices": {
+        "title": "FP2 Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Display Name",
+              "type": "string",
+              "required": true,
+              "description": "Shown in the Home app for the main accessory."
+            },
+            "host": {
+              "title": "FP2 identifier",
+              "type": "string",
+              "required": true,
+              "placeholder": "Presence-Sensor-FP2-A73D",
+              "description": "How the plugin finds your FP2. Accepts:\n• mDNS bonjour name like `Presence-Sensor-FP2-A73D` (recommended — stable across DHCP and factory resets)\n• mDNS hostname like `Presence-Sensor-FP2-A73D.local`\n• IPv4 address like `192.168.1.123` (only stable if you've reserved the DHCP lease)\n\nOnce the plugin has paired with the FP2, it also tracks the HAP device id and uses that to follow the FP2 across IP changes — but on first run, this field is the only way to find it."
+            },
+            "port": {
+              "title": "HAP Port",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Advanced: fixed HAP-over-IP port. Leave empty — the FP2 advertises its (ephemeral) port via mDNS and setting a fixed value here overrides that discovery."
+            },
+            "pin": {
+              "title": "Setup Pin",
+              "type": "string",
+              "required": true,
+              "pattern": "^[0-9]{3}-[0-9]{2}-[0-9]{3}$",
+              "placeholder": "123-45-678",
+              "description": "8-digit HAP setup pin formatted as ###-##-###. Reset the FP2 to obtain a fresh pin if it is already paired with an Apple Home."
+            },
+            "exposeZones": {
+              "title": "Expose individual zones",
+              "type": "boolean",
+              "default": true,
+              "description": "Create a separate Occupancy Sensor for each zone configured in the Aqara app."
+            },
+            "exposeLightSensor": {
+              "title": "Expose light sensor",
+              "type": "boolean",
+              "default": true
+            },
+            "mainSensorName": {
+              "title": "Main sensor name",
+              "type": "string",
+              "description": "Custom HomeKit name for the main occupancy sensor. Defaults to the display name."
+            },
+            "lightSensorName": {
+              "title": "Light sensor name",
+              "type": "string",
+              "description": "Custom HomeKit name for the light sensor. Defaults to \"<name> Light\"."
+            },
+            "zoneNames": {
+              "title": "Zone name overrides",
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Per-zone HomeKit name overrides, keyed by the zone name configured in the Aqara app. Defaults to \"<name> <zone>\" for any zone without an override."
+            },
+            "pollIntervalSeconds": {
+              "title": "Poll interval (seconds)",
+              "type": "integer",
+              "default": 30,
+              "minimum": 5,
+              "maximum": 600,
+              "description": "Fallback polling. Real-time updates use HAP event subscriptions; polling only runs as a safety net."
+            },
+            "excludedZones": {
+              "title": "Excluded zone names",
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Zone names (as configured in the Aqara app) to skip when creating per-zone Occupancy sensors."
+            },
+            "debug": {
+              "title": "Debug logging",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

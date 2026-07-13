@@ -1,0 +1,323 @@
+/* homebridge-fp2 custom UI — minimal, Homebridge-UI-friendly styling.
+   The host UI (Config UI X) already provides Bootstrap; we layer a few
+   intentional rules on top rather than fight it. */
+
+:root {
+  --bg: transparent; /* inherit from host */
+  --fg: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --warn-bg: #fef3c7;
+  --warn-border: #f59e0b;
+  --warn-fg: #92400e;
+  --ok-bg: #d1fae5;
+  --ok-border: #10b981;
+  --ok-fg: #065f46;
+  --error: #b91c1c;
+  --code-bg: #f3f4f6;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e5e7eb;
+    --muted: #9ca3af;
+    --border: #374151;
+    --code-bg: #1f2937;
+    --warn-bg: #422006;
+    --warn-fg: #fcd34d;
+    --ok-bg: #052e2b;
+    --ok-fg: #6ee7b7;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.hdr h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+/* Steps progress bar */
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.steps li {
+  flex: 1 1 0;
+  min-width: 60px;
+  text-align: center;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: transparent;
+}
+.steps li.current {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.steps li.done {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step {
+  display: block;
+}
+.step[hidden] { display: none; }
+
+.step h2 {
+  font-size: 17px;
+  margin: 0 0 6px;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.error {
+  color: var(--error);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+code, .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* Fields */
+.field {
+  display: block;
+  margin: 0 0 12px;
+}
+.field span {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 15px;
+  background: transparent;
+  color: var(--fg);
+}
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+/* Toggles */
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0 0 10px;
+  cursor: pointer;
+}
+.toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.toggle-body {
+  display: block;
+}
+.toggle-label {
+  display: block;
+  font-weight: 500;
+}
+.toggle-desc {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+/* Buttons */
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--fg);
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.btn.primary:hover { opacity: 0.92; }
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+/* Device list (step 1) */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.device-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.device {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.device-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.device-main { flex: 1 1 auto; min-width: 0; }
+.device-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.device-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.badge.ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border: 1px solid var(--ok-border);
+}
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+}
+.badge.info {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.device-warn {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-left: 3px solid var(--warn-border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.device-pick { margin-top: 4px; }
+
+.empty {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--muted);
+}
+.empty h3 {
+  margin: 0 0 6px;
+  color: var(--fg);
+  font-size: 15px;
+}
+.empty p { margin: 0 0 12px; }
+
+.preview {
+  background: var(--code-bg);
+  padding: 12px;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre;
+  margin: 0 0 12px;
+}

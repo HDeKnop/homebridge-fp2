@@ -1,0 +1,82 @@
+name: Bug report
+description: Something isn't working right with the plugin.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! The most useful bug reports include the FP2's
+        firmware version, the plugin's debug log, and what you expected vs.
+        what happened. The plugin's behaviour varies meaningfully across FP2
+        firmware revisions, so please include it.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: From `npm list homebridge-fp2` or the Homebridge UI.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: homebridge-version
+    attributes:
+      label: Homebridge version
+      description: From the Homebridge log or `homebridge -V`.
+      placeholder: "1.11.4"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "20.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: fp2-firmware
+    attributes:
+      label: FP2 firmware version
+      description: Found in the Aqara Home app under the FP2's settings, or visible in HomeKit Settings → Bridge → FP2 → Firmware Version.
+      placeholder: "1.1.7"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you see, what did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Homebridge debug log
+      description: |
+        Start Homebridge with `-D` and paste the relevant section. **Redact
+        the FP2 setup pin** if it appears anywhere.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config.json (redacted)
+      description: The `AqaraFP2` platform block. **Redact the `pin` field.**
+      render: json
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I'm running the latest plugin version
+          required: true
+        - label: I've searched existing issues
+          required: true
+        - label: I've redacted any pins / secrets from the log and config above
+          required: true

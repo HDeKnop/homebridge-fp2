@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: General questions / setup help
+    url: https://github.com/HDeKnop/homebridge-fp2/discussions
+    about: For setup help, pairing trouble, or "how do I..." — please use Discussions, not Issues.
+  - name: Homebridge community
+    url: https://discord.gg/kqNCe2D
+    about: The Homebridge Discord is a great place for general Homebridge questions.
