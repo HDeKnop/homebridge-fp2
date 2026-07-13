@@ -9,10 +9,9 @@ Homebridge plugin for the **Aqara Presence Sensor FP2**. Surfaces the
 mmWave presence detection, light level, and per-zone occupancy as native
 HomeKit services through HAP-over-WiFi.
 
-> **Why bother?** The FP2 has stock HomeKit support, but its zones — the
-> killer feature configured in the Aqara app — are _not_ exposed to
-> HomeKit. This plugin exposes each zone as its own Occupancy Sensor so
-> you can build per-area automations.
+> **Why bother?** The FP2 has stock HomeKit support - but requires the Aqara app - and then has the actual results (presence, luminance) locked into homekit which is an issue for automations outside of homekit.This plugin exposes the FP2's sensors through homebridge so you can include in any automation setup that uses homebridge.
+
+Note that setting up the FP2 with this plugin does still require the Aqara app to configure the zones and get the setup pin. Once configured, the Aqara app is no longer needed for day-to-day operation.
 
 > **A friendly heads-up — please read before relying on this plugin:**
 > This is a **beginner project**. I'm a hobbyist, not a professional
