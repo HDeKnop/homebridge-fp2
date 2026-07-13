@@ -119,12 +119,7 @@ export async function discoverFp2ByHost(
   return null;
 }
 
-async function discoverFp2Once(
-  host: string,
-  timeoutMs: number,
-  log: Logging,
-  preferredDeviceId?: string
-): Promise<DiscoveredFp2 | null> {
+async function discoverFp2Once(host: string, timeoutMs: number, log: Logging, preferredDeviceId?: string): Promise<DiscoveredFp2 | null> {
   const { IPDiscovery } = await import('hap-controller');
   if (!IPDiscovery) {
     log.warn('[discovery] hap-controller did not export IPDiscovery — falling back to no-discovery path');

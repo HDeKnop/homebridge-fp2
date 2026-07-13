@@ -190,9 +190,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     } catch (err) {
       await client.close().catch(() => undefined);
       throw new RequestError(
-        'Could not reach the FP2 with its saved pairing: ' +
-          (err?.message ?? err) +
-          '. Check it is powered on and on the network.'
+        'Could not reach the FP2 with its saved pairing: ' + (err?.message ?? err) + '. Check it is powered on and on the network.'
       );
     }
     await client.close().catch(() => undefined);
@@ -264,7 +262,13 @@ class Fp2UiServer extends HomebridgePluginUiServer {
           dev.name?.toLowerCase() === wantHost ||
           (dev.allAddresses ?? []).some(a => a.toLowerCase() === wantHost);
         if (idMatch || hostMatch) {
-          target = { address: dev.host, port: dev.port, featureFlags: dev.featureFlags, deviceId: dev.deviceId, availableToPair: dev.availableToPair };
+          target = {
+            address: dev.host,
+            port: dev.port,
+            featureFlags: dev.featureFlags,
+            deviceId: dev.deviceId,
+            availableToPair: dev.availableToPair,
+          };
           break;
         }
       }
@@ -286,7 +290,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
 
     // FP2 advertises ff=2 (software auth only). bit 0 (1) = MFi coprocessor →
     // PairSetupWithAuth (method 1); otherwise PairSetup (method 0).
-    const pairMethod = (target.featureFlags & 0x01) ? 1 : 0;
+    const pairMethod = target.featureFlags & 0x01 ? 1 : 0;
     const setupDeviceId = target.deviceId ?? configHost;
 
     let pairing;

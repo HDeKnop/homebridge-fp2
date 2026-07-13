@@ -69,7 +69,7 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - **Configured FP2s are now always listed in discovery**, even when the mDNS
   scan doesn't surface them that round (briefly offline or slow to announce).
   Previously a configured device that missed the scan window simply vanished
-  from setup. Such devices appear as *Set up here* with a "not detected right
+  from setup. Such devices appear as _Set up here_ with a "not detected right
   now" note; **Configure** still works once the device is reachable, and gives a
   clear "not responding right now" message when it isn't.
 - **Discovery now runs two browse rounds (~12s) instead of one 8s window.** Each
@@ -94,9 +94,9 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 ### Changed
 
 - **Discovery now distinguishes three states** instead of just paired/available:
-  *Set up here* (paired by this plugin → Configure), *Paired elsewhere* (paired
+  _Set up here_ (paired by this plugin → Configure), _Paired elsewhere_ (paired
   to another controller such as Apple Home/Aqara → reset guidance, no pick), and
-  *Available* (→ Use this device). Previously every paired FP2 — including those
+  _Available_ (→ Use this device). Previously every paired FP2 — including those
   this plugin owns — was shown as "claimed by another controller".
 - The discovery request now times out (25s) and prompts a retry instead of
   spinning indefinitely when the UI server is still starting after a restart.

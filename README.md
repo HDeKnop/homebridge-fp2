@@ -141,20 +141,20 @@ Or use the **Homebridge Config UI** — the schema renders a form.
 
 ### Per-device options
 
-| Field                 | Type     | Default | Description                                                                |
-| --------------------- | -------- | ------- | -------------------------------------------------------------------------- |
-| `name`                | string   | —       | Display name in HomeKit (required)                                         |
-| `host`                | string   | —       | FP2 identifier — mDNS bonjour name, hostname, or IP (required, see below)  |
-| `port`                | int      | (mDNS)  | HAP port. Usually omit — mDNS discovery resolves the FP2's ephemeral port. |
-| `pin`                 | string   | —       | Setup pin `###-##-###` (required, first run only)                          |
-| `exposeZones`         | bool     | `true`  | Create per-zone Occupancy sensors                                          |
-| `exposeLightSensor`   | bool     | `true`  | Create Light Sensor service                                                |
-| `mainSensorName`      | string   | `name`  | Custom HomeKit name for the main occupancy sensor                          |
-| `lightSensorName`     | string   | `<name> Light` | Custom HomeKit name for the light sensor                            |
-| `zoneNames`           | object   | `{}`    | Per-zone name overrides, keyed by the Aqara zone name (e.g. `{ "Desk": "Office Desk" }`) |
-| `pollIntervalSeconds` | int      | `30`    | Fallback poll. Real-time uses HAP events                                   |
-| `excludedZones`       | string[] | `[]`    | Zone names (Aqara app) to skip                                             |
-| `debug`               | bool     | `false` | Verbose logs                                                               |
+| Field                 | Type     | Default        | Description                                                                              |
+| --------------------- | -------- | -------------- | ---------------------------------------------------------------------------------------- |
+| `name`                | string   | —              | Display name in HomeKit (required)                                                       |
+| `host`                | string   | —              | FP2 identifier — mDNS bonjour name, hostname, or IP (required, see below)                |
+| `port`                | int      | (mDNS)         | HAP port. Usually omit — mDNS discovery resolves the FP2's ephemeral port.               |
+| `pin`                 | string   | —              | Setup pin `###-##-###` (required, first run only)                                        |
+| `exposeZones`         | bool     | `true`         | Create per-zone Occupancy sensors                                                        |
+| `exposeLightSensor`   | bool     | `true`         | Create Light Sensor service                                                              |
+| `mainSensorName`      | string   | `name`         | Custom HomeKit name for the main occupancy sensor                                        |
+| `lightSensorName`     | string   | `<name> Light` | Custom HomeKit name for the light sensor                                                 |
+| `zoneNames`           | object   | `{}`           | Per-zone name overrides, keyed by the Aqara zone name (e.g. `{ "Desk": "Office Desk" }`) |
+| `pollIntervalSeconds` | int      | `30`           | Fallback poll. Real-time uses HAP events                                                 |
+| `excludedZones`       | string[] | `[]`           | Zone names (Aqara app) to skip                                                           |
+| `debug`               | bool     | `false`        | Verbose logs                                                                             |
 
 ### Identifying your FP2 (the `host` field)
 
