@@ -215,15 +215,6 @@ Delete `~/.homebridge/homebridge-fp2/{host}.json` (named after the
 `host` value in your config), reset the FP2, and restart Homebridge. The
 next start will re-pair.
 
-## Potential next steps
-
-These features are not currently implemented but are under consideration:
-
-- **Reset Presence switch** — a momentary HomeKit Switch that writes the FP2's reset trigger to clear stuck presence. The plugin already auto-detects the trigger characteristic in the HAP service tree; exposing it as a HomeKit tile is the remaining step.
-- **Eve Last Activation** — adds an Eve-compatible "Last Activation" timestamp to the occupancy sensor, enabling "no motion in 10 minutes" automations in Eve and Controller for HomeKit.
-
-If either of these would be useful to you, please open an issue or comment on an existing one.
-
 ## Architecture
 
 See [DESIGN.md](DESIGN.md) for the architecture, state model, and design
