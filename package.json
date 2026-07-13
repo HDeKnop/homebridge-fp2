@@ -1,5 +1,5 @@
 {
-  "displayName": "Homebridge Aqara FP2",
+  "displayName": "Homebridge Aqara FP2 Presence",
   "name": "homebridge-fp2",
   "version": "0.4.2",
   "description": "Homebridge plugin for the Aqara Presence Sensor FP2 — exposes the main occupancy sensor, light level, and per-zone occupancy via HAP-over-WiFi.",

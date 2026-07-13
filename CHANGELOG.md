@@ -7,6 +7,10 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+### Changed
+
+- Display name in the Homebridge UI is now "Homebridge Aqara FP2 Presence".
+
 ## [0.4.2] — 2026-07-13
 
 ### Fixed
