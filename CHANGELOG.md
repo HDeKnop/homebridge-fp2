@@ -7,6 +7,16 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.9] — 2026-07-14
+
+### Changed
+
+- An FP2 that is paired and present in `config.json` is now badged **"Paired and
+  configured"** rather than the ambiguous "Set up here", and its action is a
+  secondary **Reconfigure** rather than a primary "Configure this device" — a
+  sensor that is already working should not read as an outstanding task. Applies to
+  a configured device the scan didn't surface, too.
+
 ## [0.5.8] — 2026-07-14
 
 ### Fixed
@@ -386,7 +396,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.8...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.9...HEAD
+[0.5.9]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.8...v0.5.9
 [0.5.8]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.7...v0.5.8
 [0.5.7]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.5...v0.5.6

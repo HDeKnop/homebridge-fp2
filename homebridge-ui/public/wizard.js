@@ -92,13 +92,13 @@ function renderOfflineDevice(block) {
           <span>not detected right now</span>
         </div>
       </div>
-      <span class="badge info">Set up here</span>
+      <span class="badge info">Paired and configured</span>
     </div>
     <p class="hint">In your config but it didn't answer the scan just now — it may be
-       slow to announce or briefly offline. Configure still needs it reachable to
+       slow to announce or briefly offline. Reconfiguring still needs it reachable to
        read its sensors.</p>
-    <button type="button" class="btn primary device-configure-offline" data-config-host="${escapeHtml(block.host)}">
-      Configure this device
+    <button type="button" class="btn device-configure-offline" data-config-host="${escapeHtml(block.host)}">
+      Reconfigure
     </button>
     <button type="button" class="btn device-remove" data-config-host="${escapeHtml(block.host)}" data-pairing-key="">
       Remove device
@@ -205,7 +205,7 @@ async function doDiscover(quick = false) {
         category === 'stale'
           ? '<span class="badge warn">Stale pairing</span>'
           : category === 'configured'
-            ? '<span class="badge info">Configured</span>'
+            ? '<span class="badge info">Paired and configured</span>'
             : category === 'needs-config'
               ? '<span class="badge ok">Paired — needs setup</span>'
               : category === 'claimed'
