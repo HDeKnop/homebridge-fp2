@@ -33,6 +33,9 @@ class Fp2UiServer extends HomebridgePluginUiServer {
   constructor() {
     super();
 
+    /** Lazily-created shared mDNS browser — see browser(). */
+    this._browser = null;
+
     this.onRequest('/discover', this.handleDiscover.bind(this));
     this.onRequest('/forget', this.handleForget.bind(this));
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
@@ -53,19 +56,21 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    * however many announcements happened to survive WiFi packet loss.
    */
   async scanFp2s(timeoutMs = DISCOVERY_TIMEOUT_MS) {
-    const log = {
-      info: msg => console.log(msg),
-      warn: msg => console.warn(msg),
-      debug: () => {},
-    };
-    const browser = new Fp2Browser(log);
     let found;
     try {
-      found = await browser.scanAll(timeoutMs);
+      // Hard ceiling on the whole scan. scanAll is bounded internally, but this
+      // process answers over an IPC channel that has no timeout of its own: if a
+      // scan ever failed to settle, the request would hang forever with no error
+      // shown — the browser's "Scan timed out" with nothing in the log. Fail loudly
+      // instead.
+      found = await Promise.race([
+        this.browser().scanAll(timeoutMs),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`mDNS scan did not complete within ${timeoutMs + 5000}ms`)), timeoutMs + 5000)
+        ),
+      ]);
     } catch (err) {
       throw new RequestError('Could not run mDNS discovery: ' + (err?.message ?? err));
-    } finally {
-      browser.stop();
     }
 
     // Re-shape to the field names the wizard UI expects (`host` = the address
@@ -86,6 +91,29 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       });
     }
     return fp2s;
+  }
+
+  /**
+   * One mDNS browser for this process's lifetime.
+   *
+   * Emphatically NOT one per request: each browser binds its own UDP :5353
+   * sockets, and repeatedly binding and tearing those down in a long-lived
+   * process (the UI server is reused across every /discover and /pair) is a good
+   * way to end up wedged, with a request that never settles. A single browser
+   * also means a second scan answers instantly from the warm cache.
+   */
+  browser() {
+    if (!this._browser) {
+      this._browser = new Fp2Browser({
+        // Route to stderr: stdout carries this process's IPC framing to the
+        // Homebridge UI parent.
+        info: msg => console.error(msg),
+        warn: msg => console.error(msg),
+        debug: () => {},
+      });
+      this._browser.start();
+    }
+    return this._browser;
   }
 
   /** The PairingStore the runtime plugin reads/writes, under the HB storage path. */

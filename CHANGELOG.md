@@ -7,6 +7,19 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.4] — 2026-07-14
+
+### Fixed
+
+- **The setup UI's "Scan for devices" could hang until it timed out.** The UI
+  server built a fresh mDNS browser for every request, each binding its own UDP
+  :5353 sockets; repeatedly binding and tearing those down in a long-lived process
+  could wedge it, leaving the request to never settle — the browser showed "Scan
+  timed out" with nothing in the log to explain it. The UI server now keeps a
+  single browser for its lifetime (a rescan also answers instantly from its warm
+  cache), and a scan that fails to complete now raises a real error instead of
+  hanging silently.
+
 ## [0.5.3] — 2026-07-14
 
 ### Added
@@ -313,7 +326,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...v0.5.1
