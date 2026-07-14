@@ -116,29 +116,41 @@ function renderOfflineDevice(block) {
  * concurrent callers simply share the in-flight scan. */
 let discoverInFlight = null;
 
-async function runDiscover() {
+/* `quick` serves from the UI server's warm browser cache instead of running a new
+ * multicast sweep — used when returning to the list after pairing, where nothing
+ * on the network has changed and we only need the pairing state re-read. */
+async function runDiscover(quick = false) {
   if (discoverInFlight) return discoverInFlight;
-  discoverInFlight = doDiscover().finally(() => {
+  discoverInFlight = doDiscover(quick === true).finally(() => {
     discoverInFlight = null;
   });
   return discoverInFlight;
 }
 
-async function doDiscover() {
+async function doDiscover(quick = false) {
   const statusEl = $('#discover-status');
   const listEl = $('#device-list');
   const emptyEl = $('#no-devices');
 
-  statusEl.hidden = false;
-  listEl.hidden = true;
-  listEl.innerHTML = '';
+  // Keep whatever is already on screen visible while we refresh. Returning to the
+  // scan after "Save & add another" would otherwise blank the list and show a
+  // spinner, even though we already know what is on the network — the only thing
+  // that actually changed is that the device we just paired is now configured.
+  // (The list is still rebuilt from the scan result below; this only avoids the
+  // flash of an empty list.)
+  const hadContent = listEl.children.length > 0;
+  statusEl.hidden = hadContent;
+  if (!hadContent) {
+    listEl.hidden = true;
+    listEl.innerHTML = '';
+  }
   emptyEl.hidden = true;
 
   try {
     // The UI server can take a moment to come up right after a bridge restart;
     // a plain request would then spin forever. Bound it and surface a retry.
     const [{ devices }, configured] = await Promise.all([
-      withTimeout(homebridge.request('/discover'), 30_000, 'discover'),
+      withTimeout(homebridge.request('/discover', { quick }), 30_000, 'discover'),
       loadConfiguredDevices(),
     ]);
     statusEl.hidden = true;
@@ -811,7 +823,9 @@ function resetWizard() {
   $('#opt-zones').checked = true;
   $('#opt-lux').checked = true;
   show('discover');
-  runDiscover();
+  // Quick: we already know what's on the network — the only thing that changed is
+  // that the FP2 we just paired is now configured. No need to re-sweep the LAN.
+  runDiscover(true);
 }
 
 function init() {

@@ -57,7 +57,15 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    * flight, which is what makes this return the full set of devices rather than
    * however many announcements happened to survive WiFi packet loss.
    */
-  async scanFp2s(timeoutMs = DISCOVERY_TIMEOUT_MS) {
+  async scanFp2s(timeoutMs = DISCOVERY_TIMEOUT_MS, { quick = false } = {}) {
+    // The shared browser is long-lived and keeps re-querying in the background, so
+    // once it has seen the LAN its cache is already current. "Save & add another"
+    // only needs the list re-rendered (the device just paired is now configured) —
+    // not another multicast sweep — so it can be served straight from that cache.
+    if (quick) {
+      const cached = this.browser().devices;
+      if (cached.size > 0) return this.shapeForUi(cached);
+    }
     let found;
     try {
       // Hard ceiling on the whole scan. scanAll is bounded internally, but this
@@ -75,8 +83,12 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       throw new RequestError('Could not run mDNS discovery: ' + (err?.message ?? err));
     }
 
-    // Re-shape to the field names the wizard UI expects (`host` = the address
-    // we'd connect on).
+    return this.shapeForUi(found);
+  }
+
+  /** Re-shape discovered devices to the field names the wizard UI expects
+   *  (`host` = the address we'd connect on). */
+  shapeForUi(found) {
     const fp2s = new Map();
     for (const [deviceId, dev] of found) {
       fp2s.set(deviceId, {
@@ -86,6 +98,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
         port: dev.port,
         deviceId,
         model: dev.model,
+        serial: dev.serial,
         statusFlags: dev.statusFlags,
         featureFlags: dev.featureFlags,
         configNumber: dev.configNumber,
@@ -132,8 +145,11 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    * "paired by this plugin" (offer Configure) apart from "paired by another
    * controller" (Apple Home / Aqara — both report HAP status flag sf=0).
    */
-  async handleDiscover() {
-    const fp2s = await this.scanFp2s();
+  async handleDiscover({ quick = false } = {}) {
+    // `quick` serves from the shared browser's live cache when it has one — used
+    // when returning to the list after pairing, where the network hasn't changed
+    // and only the pairing state needs re-reading.
+    const fp2s = await this.scanFp2s(DISCOVERY_TIMEOUT_MS, { quick });
 
     // Index our stored pairings by both keys we might match on: the HAP deviceId
     // (proves this exact pairing is still valid) and the hardware serial (proves

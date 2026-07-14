@@ -7,6 +7,18 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.6] — 2026-07-14
+
+### Changed
+
+- **"Save & add another" no longer re-scans the network.** Returning to the device
+  list after pairing ran a fresh multicast sweep, even though nothing on the
+  network had changed — the only difference is that the FP2 just paired is now
+  configured. It now serves from the UI server's warm browser cache (which is
+  long-lived and re-querying in the background anyway), so the list comes back
+  immediately, and the list no longer blanks to a spinner while it refreshes.
+  "Scan again" still performs a real scan.
+
 ## [0.5.5] — 2026-07-14
 
 ### Fixed
@@ -347,7 +359,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...v0.5.3
