@@ -28,14 +28,17 @@ export const HAP_CALL_TIMEOUT_MS = 15_000;
  *  doesn't cover. */
 export const WATCHDOG_INTERVAL_MS = 60_000;
 
-/** Per-round mDNS browse window. Each round spins up a fresh IPDiscovery, i.e.
- *  a fresh multicast query burst. Re-querying in discrete rounds counters WiFi
- *  multicast packet loss (a single dropped response otherwise wastes the whole
- *  window) far better than one long passive wait. */
-export const DISCOVERY_ROUND_MS = 6_000;
+/** Aqara FP2 mDNS model identifier (HAP TXT `md`). Discovery filters on this. */
+export const FP2_MODEL = 'PS-S02D';
 
-/** Total mDNS discovery budget per connect attempt, split into
- *  DISCOVERY_ROUND_MS rounds. Bonjour caches can be slow on a cold start and
- *  the FP2 can take ~15-20s to surface after a Homebridge restart, so the
- *  budget covers that while each round re-queries to survive packet loss. */
-export const DISCOVERY_TIMEOUT_MS = 18_000;
+/** How often the shared browser re-issues its multicast query while a scan is
+ *  in flight. The residual discovery misses are real WiFi multicast packet
+ *  loss — no library avoids them by listening harder. Actively re-querying
+ *  turns a dropped response into a retry, which is what took discovery from an
+ *  intermittent 4/5 to 5/5 across 10 consecutive runs against 5 real FP2s. */
+export const DISCOVERY_REQUERY_MS = 1_500;
+
+/** Upper bound on a discovery wait. The shared browser answers from its warm
+ *  cache almost always, and a cold scan found all devices within ~5s in
+ *  testing, so this is a ceiling rather than a duration we expect to spend. */
+export const DISCOVERY_TIMEOUT_MS = 8_000;

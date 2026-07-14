@@ -9,34 +9,25 @@
 //   - "restart-bridge"  → ask Config UI X to restart Homebridge
 //
 // mDNS cannot run in the browser; that's the whole reason this server exists.
-// Discovery uses hap-controller's IPDiscovery (already a runtime dep) so we
-// pick up the FP2's deviceId, port, and sf/ff flags directly from the HAP
-// announcement — no need for a separate mDNS library.
+// Browsing is delegated to the plugin's own compiled Fp2Browser (bonjour-service
+// based) — the same module the runtime plugin uses, so the wizard and the
+// running plugin can never disagree about what's on the network. It replaced
+// hap-controller's IPDiscovery, whose unmaintained `dnssd` backend silently
+// dropped FP2s and made this scan return 0, 1 or 5 devices at random.
 
 import { join } from 'node:path';
 
 import { HomebridgePluginUiServer, RequestError } from '@homebridge/plugin-ui-utils';
-import { HttpClient, IPDiscovery } from 'hap-controller';
+import { HttpClient } from 'hap-controller';
 
 // Reuse the plugin's compiled, dependency-free helpers (parser is type-only
 // dependent; pairing-store + settings pull only pure leaf modules). This keeps
 // the wizard's pairing identical to what the runtime plugin reads back.
+import { Fp2Browser } from '../dist/fp2-browser.js';
 import { parseAccessories } from '../dist/parser.js';
 import { PairingStore } from '../dist/pairing-store.js';
 import { normalizeDeviceId } from '../dist/mappers.js';
-import { STORAGE_SUBDIR } from '../dist/settings.js';
-
-/** Aqara FP2 mDNS model identifier. Filter discovery to just these. */
-const FP2_MODEL = 'PS-S02D';
-/** Per-round mDNS browse window. Each round spins up a fresh IPDiscovery (a
- *  fresh multicast query burst), so a device whose announcement was lost to
- *  WiFi multicast packet loss in one round gets another chance in the next.
- *  A single long window can't do that — it just waits on the dropped packet. */
-const DISCOVERY_ROUND_MS = 6_000;
-/** Number of browse rounds per /discover. Two rounds (~12s) reliably catches
- *  flaky announcers (some FP2s only surface on the 2nd query) while staying
- *  well inside the wizard's client-side request timeout. */
-const DISCOVERY_ROUNDS = 2;
+import { DISCOVERY_TIMEOUT_MS, STORAGE_SUBDIR } from '../dist/settings.js';
 
 class Fp2UiServer extends HomebridgePluginUiServer {
   constructor() {
@@ -53,63 +44,45 @@ class Fp2UiServer extends HomebridgePluginUiServer {
   }
 
   /**
-   * Run a single mDNS browse round and return every Aqara FP2 seen, keyed by
-   * HAP deviceId. Shared by /discover and /pair so both see the same shape.
+   * Browse the LAN and return every Aqara FP2 seen, keyed by HAP deviceId.
+   * Shared by /discover and /pair so both see the same shape.
+   *
+   * The browser actively re-issues its multicast query while the scan is in
+   * flight, which is what makes this return the full set of devices rather than
+   * however many announcements happened to survive WiFi packet loss.
    */
-  async scanFp2s(rounds = DISCOVERY_ROUNDS, roundMs = DISCOVERY_ROUND_MS) {
-    const fp2s = new Map();
-    const onUp = svc => {
-      if (!svc || svc.md !== FP2_MODEL) return;
-      // De-dupe by HAP deviceId — the same FP2 sometimes announces on
-      // multiple interfaces and we only want one row in the UI. A later round
-      // overwrites with fresher address/flags, which is what we want.
-      fp2s.set(svc.id, {
-        name: svc.name,
-        host: svc.address,
-        allAddresses: Array.isArray(svc.allAddresses) ? svc.allAddresses : [svc.address],
-        port: svc.port,
-        deviceId: svc.id,
-        model: svc.md,
-        statusFlags: svc.sf,
-        featureFlags: svc.ff,
-        configNumber: svc['c#'],
-        availableToPair: (svc.sf & 0x01) === 0x01,
-      });
+  async scanFp2s(timeoutMs = DISCOVERY_TIMEOUT_MS) {
+    const log = {
+      info: msg => console.log(msg),
+      warn: msg => console.warn(msg),
+      debug: () => {},
     };
-
-    let initError;
-    for (let round = 0; round < rounds; round++) {
-      let discovery;
-      try {
-        discovery = new IPDiscovery();
-        discovery.on('serviceUp', onUp);
-        // dnssd's Browser re-emits mDNS socket errors as 'error' events with no
-        // listener attached by hap-controller — unhandled, they would crash the
-        // UI server process. Count them as a failed round instead.
-        discovery.on('error', err => {
-          initError ??= err;
-        });
-        discovery.start();
-        discovery.browser?.on('error', err => {
-          initError ??= err;
-        });
-      } catch (err) {
-        // Remember the first failure but keep trying further rounds; only
-        // surface it if every round failed and we found nothing.
-        initError ??= err;
-        continue;
-      }
-      await new Promise(resolve => setTimeout(resolve, roundMs));
-      try {
-        discovery.stop();
-      } catch {
-        /* noop */
-      }
-      discovery.removeAllListeners('serviceUp');
+    const browser = new Fp2Browser(log);
+    let found;
+    try {
+      found = await browser.scanAll(timeoutMs);
+    } catch (err) {
+      throw new RequestError('Could not run mDNS discovery: ' + (err?.message ?? err));
+    } finally {
+      browser.stop();
     }
 
-    if (fp2s.size === 0 && initError) {
-      throw new RequestError('Could not run mDNS discovery: ' + (initError?.message ?? initError));
+    // Re-shape to the field names the wizard UI expects (`host` = the address
+    // we'd connect on).
+    const fp2s = new Map();
+    for (const [deviceId, dev] of found) {
+      fp2s.set(deviceId, {
+        name: dev.name,
+        host: dev.address,
+        allAddresses: dev.allAddresses ?? [dev.address],
+        port: dev.port,
+        deviceId,
+        model: dev.model,
+        statusFlags: dev.statusFlags,
+        featureFlags: dev.featureFlags,
+        configNumber: dev.configNumber,
+        availableToPair: dev.availableToPair,
+      });
     }
     return fp2s;
   }

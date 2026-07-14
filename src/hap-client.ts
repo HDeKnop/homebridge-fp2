@@ -4,7 +4,7 @@ import type { Logging } from 'homebridge';
 import type { PairingData } from 'hap-controller';
 
 import { raceWithTimeout } from './async-util.js';
-import { discoverFp2ByHost } from './discovery.js';
+import type { Fp2Browser } from './fp2-browser.js';
 import { PairingStore } from './pairing-store.js';
 import { type Accessories, parseAccessories } from './parser.js';
 import {
@@ -79,7 +79,10 @@ export class Fp2HapClient extends EventEmitter {
   constructor(
     private readonly cfg: Fp2DeviceConfig,
     private readonly store: PairingStore,
-    private readonly log: Logging
+    private readonly log: Logging,
+    /** Shared, platform-owned mDNS browser. Every device resolves through the
+     *  same live cache, so a reconnect no longer costs its own multicast scan. */
+    private readonly browser: Fp2Browser
   ) {
     super();
   }
@@ -165,10 +168,12 @@ export class Fp2HapClient extends EventEmitter {
     // its deviceId (if found) to prefer the matching mDNS service.
     let stored = await this.store.load(this.cfg.host);
 
-    // Always discover via mDNS on connect — HAP accessories advertise on
+    // Always resolve via mDNS on connect — HAP accessories advertise on
     // ephemeral ports, so we cannot hard-code one and the port may even
     // change after a reboot. mDNS is also how we get the canonical deviceId.
-    const discovered = await discoverFp2ByHost(this.cfg.host, DISCOVERY_TIMEOUT_MS, this.log, stored?.deviceId);
+    // The shared browser answers from its live cache, so this is normally
+    // instant rather than a fresh multicast scan per reconnect.
+    const discovered = await this.browser.resolve(this.cfg.host, DISCOVERY_TIMEOUT_MS, stored?.deviceId);
 
     // If the host-based lookup missed but discovery did surface the FP2,
     // try matching a previous pairing by deviceId. This handles the case

@@ -1,19 +1,28 @@
-import type { Logging } from 'homebridge';
+// Discovery types and the pure host↔service matcher.
+//
+// This module is deliberately a dependency-free leaf: `src/fp2-browser.ts` (the
+// mDNS implementation) imports from here, and the compiled output is loaded by
+// the Config UI X server process, so nothing here may import `homebridge` or a
+// network library at runtime.
 
 /**
- * Look up the HAP-advertised metadata for an FP2 by its IP address using
- * mDNS / Bonjour (`_hap._tcp.local`). Returns the device's pairing identity
- * (the HAP `id` field formatted as `XX:XX:XX:XX:XX:XX`) along with the
- * advertised port — important because HAP accessories advertise on
- * ephemeral high ports, so the port can NEVER be hard-coded; it has to come
- * from mDNS or explicit config.
- *
- * Times out after `timeoutMs` and resolves with null if the FP2 isn't seen.
+ * An FP2 as advertised over mDNS (`_hap._tcp.local`), carrying its pairing
+ * identity (the HAP `id`, formatted `XX:XX:XX:XX:XX:XX`) and the advertised
+ * port — important because HAP accessories advertise on ephemeral high ports,
+ * so the port can NEVER be hard-coded; it has to come from mDNS or config.
  */
 export interface DiscoveredFp2 {
   deviceId: string;
   address: string;
   port: number;
+  /** mDNS instance name, e.g. `Presence-Sensor-FP2-6A5A`. Retained so a config
+   *  `host` given as a bonjour name (the form config.schema.json recommends)
+   *  still matches against the cache, and so the wizard can label the device. */
+  name?: string;
+  /** Every address the FP2 advertised. `address` is the one we chose to connect
+   *  on (IPv4-preferred); this keeps the rest for matching a config `host` that
+   *  was written as an IP. */
+  allAddresses?: string[];
   /** Numeric pairing-status flags. Bit 0 = "AccessoryNotPaired" (sf=1 means
    *  pair-setup is permitted; sf=0 means the device is already paired). */
   statusFlags: number;
@@ -77,119 +86,8 @@ export function matchesService(svc: HapServiceUp, host: string, preferredDeviceI
   return false;
 }
 
-/**
- * @param host    config-provided IP / hostname (matched first)
- * @param timeoutMs  how long to wait for the FP2 to surface
- * @param log     Homebridge logger
- * @param preferredDeviceId  optional HAP deviceId (e.g. `"34:8F:C1:76:9A:50"`).
- *   When provided, a matching id wins over the host match — letting us
- *   follow the FP2 across DHCP lease changes once we've paired with it.
- */
-// `normalizeDeviceId` lives in mappers.ts (leaf module) so pairing-store
-// can use it without circular deps; re-exported here for callers that
-// import it from the discovery surface area.
+// `normalizeDeviceId` lives in mappers.ts (leaf module) so pairing-store can use
+// it without circular deps; re-exported here for callers that import it from the
+// discovery surface area.
 export { normalizeDeviceId } from './mappers.js';
 import { normalizeDeviceId } from './mappers.js';
-import { DISCOVERY_ROUND_MS } from './settings.js';
-
-/**
- * Discover the FP2 within `timeoutMs`, retrying in discrete browse rounds.
- *
- * Each round ({@link discoverFp2Once}) is a fresh `IPDiscovery` and therefore a
- * fresh multicast query burst. A single dropped mDNS response (common on WiFi)
- * only costs one round rather than the whole budget, and a cold Bonjour cache
- * gets several chances to populate — both of which made the old single 10s
- * passive wait fall into 60s reconnect loops.
- */
-export async function discoverFp2ByHost(
-  host: string,
-  timeoutMs: number,
-  log: Logging,
-  preferredDeviceId?: string
-): Promise<DiscoveredFp2 | null> {
-  const roundMs = Math.min(DISCOVERY_ROUND_MS, timeoutMs);
-  const rounds = Math.max(1, Math.round(timeoutMs / roundMs));
-  for (let round = 1; round <= rounds; round++) {
-    const found = await discoverFp2Once(host, roundMs, log, preferredDeviceId);
-    if (found) {
-      if (round > 1) log.debug(`[discovery] matched ${host} on round ${round}/${rounds}`);
-      return found;
-    }
-  }
-  return null;
-}
-
-async function discoverFp2Once(host: string, timeoutMs: number, log: Logging, preferredDeviceId?: string): Promise<DiscoveredFp2 | null> {
-  const { IPDiscovery } = await import('hap-controller');
-  if (!IPDiscovery) {
-    log.warn('[discovery] hap-controller did not export IPDiscovery — falling back to no-discovery path');
-    return null;
-  }
-  const discovery = new IPDiscovery();
-  const observed: HapServiceUp[] = [];
-
-  return new Promise<DiscoveredFp2 | null>(resolve => {
-    let resolved = false;
-    let timer: NodeJS.Timeout | null = null;
-
-    const finish = (result: DiscoveredFp2 | null) => {
-      if (resolved) return;
-      resolved = true;
-      if (timer) clearTimeout(timer);
-      try {
-        discovery.stop();
-      } catch {
-        /* noop */
-      }
-      if (!result) {
-        log.debug(
-          `[discovery] no FP2 matched ${host} after ${timeoutMs}ms; saw ${observed.length} HAP service(s): ` +
-            observed.map(s => `{name=${s.name} addr=${s.address} port=${s.port} id=${s.id}}`).join(', ')
-        );
-      }
-      resolve(result);
-    };
-
-    const tryMatch = (svc: HapServiceUp): boolean => matchesService(svc, host, preferredDeviceId);
-
-    const onUp = (svc: HapServiceUp) => {
-      observed.push(svc);
-      log.debug(`[discovery] serviceUp name=${svc.name} addr=${svc.address} port=${svc.port} id=${svc.id} sf=${svc.sf}`);
-      if (tryMatch(svc)) {
-        log.debug(`[discovery] matched FP2 at ${host}: id=${svc.id} port=${svc.port} model=${svc.md} ff=${svc.ff} sf=${svc.sf}`);
-        finish({
-          deviceId: svc.id,
-          address: svc.address,
-          port: svc.port,
-          statusFlags: svc.sf,
-          featureFlags: svc.ff ?? 0,
-          availableToPair: (svc.sf & 0x01) === 0x01,
-          model: svc.md,
-          configNumber: svc['c#'],
-        });
-      }
-    };
-
-    // dnssd's Browser re-emits mDNS socket errors (e.g. ENETUNREACH while the
-    // host has no IPv4 route yet at boot) as 'error' events, and hap-controller's
-    // IPDiscovery attaches no listener — unhandled, they crash the whole child
-    // bridge. Treat them as a failed round instead.
-    const onError = (err: Error) => {
-      log.debug(`[discovery] mDNS error: ${err.message}`);
-      finish(null);
-    };
-
-    discovery.on('serviceUp', onUp);
-    (discovery as unknown as NodeJS.EventEmitter).on('error', onError);
-    try {
-      discovery.start();
-    } catch (err) {
-      log.debug(`[discovery] start failed: ${(err as Error).message}`);
-      finish(null);
-      return;
-    }
-    (discovery as unknown as { browser?: NodeJS.EventEmitter }).browser?.on('error', onError);
-
-    timer = setTimeout(() => finish(null), timeoutMs);
-  });
-}

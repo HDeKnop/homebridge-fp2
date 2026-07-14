@@ -7,8 +7,39 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-14
+
+### Fixed
+
+- **mDNS discovery is now reliable.** The config wizard's scan could return 0, 1
+  or all of the FP2s on the network at random, and the same flakiness slowed
+  runtime connects. Browsing no longer goes through `hap-controller`'s
+  `IPDiscovery`, which wraps the unmaintained `dnssd@0.4.1`:
+  - `dnssd` only emits a service once its SRV, TXT **and** A/AAAA records have
+    all arrived, and allows its resolver 10s to get there — longer than the 6s
+    browse window we gave it. A device that needed a re-query was silently
+    dropped, with no error raised.
+  - The plugin now browses `_hap._tcp` with `bonjour-service` and **actively
+    re-issues the multicast query** while a scan is in flight. Swapping the
+    library alone was not enough — the residual misses are genuine WiFi
+    multicast packet loss, and re-querying is what turns a dropped response into
+    a retry. Measured against five real FP2s: 10/10 scans found all five, versus
+    an intermittent 4/5 (and worse in the wild) before.
+- **A link-local IPv6 address is no longer handed to the HAP connection.** Every
+  FP2 advertises both an IPv4 and an `fe80::` address, and `IPDiscovery` reported
+  whichever arrived first (`addresses[0]`) with no family preference. A bare
+  `fe80::` address cannot be connected to, and `HttpClient` takes a single
+  address with no fallback, so this produced connect failures that looked random.
+  Address selection now prefers IPv4 and never returns a bare link-local
+  (upstream: hap-controller#192).
+
 ### Changed
 
+- Discovery is now a single shared, long-lived browser owned by the platform,
+  replacing the duplicated per-device and wizard scanners. A reconnect resolves
+  from its live cache in ~1ms instead of re-running an 18s multicast scan, and
+  the cache follows an FP2 across a DHCP lease change or the new ephemeral HAP
+  port it picks after rebooting.
 - Display name in the Homebridge UI is now "Homebridge Aqara FP2 Presence".
 
 ## [0.4.2] — 2026-07-13
@@ -224,6 +255,7 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.4.3...v0.5.0
 [0.2.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/HDeKnop/homebridge-fp2/releases/tag/v0.1.0

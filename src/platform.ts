@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { API, Characteristic, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
 
 import { Fp2Accessory } from './accessory.js';
+import { Fp2Browser } from './fp2-browser.js';
 import { Fp2HapClient } from './hap-client.js';
 import { sanitizeHapName } from './mappers.js';
 import { PairingStore } from './pairing-store.js';
@@ -22,6 +23,8 @@ export class FP2Platform implements DynamicPlatformPlugin {
   public readonly cachedAccessories = new Map<string, PlatformAccessory>();
   private readonly devices: ManagedDevice[] = [];
   private readonly pairingStore: PairingStore;
+  /** One mDNS browser for the whole platform, shared by every device. */
+  private readonly browser: Fp2Browser;
 
   constructor(
     public readonly log: Logging,
@@ -31,8 +34,11 @@ export class FP2Platform implements DynamicPlatformPlugin {
     this.Service = api.hap.Service;
     this.Characteristic = api.hap.Characteristic;
     this.pairingStore = new PairingStore(join(api.user.storagePath(), STORAGE_SUBDIR));
+    this.browser = new Fp2Browser(log);
 
     this.api.on('didFinishLaunching', () => {
+      // Start browsing before the first connect so the cache is already warm.
+      this.browser.start();
       this.discoverDevices().catch(err => {
         this.log.error(`device discovery failed: ${err instanceof Error ? err.message : String(err)}`);
       });
@@ -96,7 +102,7 @@ export class FP2Platform implements DynamicPlatformPlugin {
       accessory.context.host = d.host;
       accessory.context.name = d.name;
 
-      const client = new Fp2HapClient(d, this.pairingStore, this.log);
+      const client = new Fp2HapClient(d, this.pairingStore, this.log, this.browser);
       const handler = new Fp2Accessory(this, accessory, client, d);
 
       if (this.cachedAccessories.has(uuid)) {
@@ -136,6 +142,7 @@ export class FP2Platform implements DynamicPlatformPlugin {
 
   private async shutdown(): Promise<void> {
     this.log.info('shutting down FP2 clients');
+    this.browser.stop();
     await Promise.all(this.devices.map(d => d.client.close()));
   }
 }
