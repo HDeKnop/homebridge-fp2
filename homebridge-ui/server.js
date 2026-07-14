@@ -34,6 +34,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     super();
 
     this.onRequest('/discover', this.handleDiscover.bind(this));
+    this.onRequest('/forget', this.handleForget.bind(this));
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/inspect', this.handleInspect.bind(this));
@@ -104,26 +105,77 @@ class Fp2UiServer extends HomebridgePluginUiServer {
   async handleDiscover() {
     const fp2s = await this.scanFp2s();
 
-    // Map normalized deviceId → stored pairing host, for devices we paired.
-    const known = new Map();
+    // Index our stored pairings by both keys we might match on: the HAP deviceId
+    // (proves this exact pairing is still valid) and the hardware serial (proves
+    // it is the same physical device, even after a factory reset changed its
+    // HAP id — which is exactly what makes a pairing go stale).
+    let records = [];
     try {
-      for (const rec of await this.pairingStore().listAll()) {
-        const id = normalizeDeviceId(rec.deviceId)?.toLowerCase();
-        if (id) known.set(id, rec.host);
-      }
+      records = await this.pairingStore().listAll();
     } catch {
       /* store unreadable — treat everything as not-known-by-us */
+    }
+    const byDeviceId = new Map();
+    const bySerial = new Map();
+    for (const rec of records) {
+      const id = normalizeDeviceId(rec.deviceId)?.toLowerCase();
+      if (id) byDeviceId.set(id, rec);
+      const serial = rec.serial?.trim().toLowerCase();
+      if (serial) bySerial.set(serial, rec);
     }
 
     const devices = [...fp2s.values()].map(dev => {
       const id = normalizeDeviceId(dev.deviceId)?.toLowerCase();
-      const storedHost = id ? known.get(id) : undefined;
-      return { ...dev, knownByUs: storedHost !== undefined, storedHost: storedHost ?? null };
+      const serial = dev.serial?.trim().toLowerCase();
+      const matchedById = id ? byDeviceId.get(id) : undefined;
+      // Same hardware, different HAP id => the FP2 was factory-reset and the
+      // stored credential is dead. Legacy records have no serial; fall back to
+      // matching on the host/IP the record was keyed under.
+      const matchedBySerial = serial ? bySerial.get(serial) : undefined;
+      const legacyByHost = !matchedById && !matchedBySerial ? records.find(r => !r.serial && r.host === dev.host) : undefined;
+      const staleRecord = !matchedById ? (matchedBySerial ?? legacyByHost) : undefined;
+
+      const record = matchedById ?? staleRecord;
+      return {
+        ...dev,
+        knownByUs: matchedById !== undefined,
+        storedHost: record?.host ?? null,
+        /** True when we hold a pairing for this hardware that can never work
+         *  again — the device was reset. The UI offers "Forget pairing". */
+        stalePairing: staleRecord !== undefined,
+        /** The store key to pass to /forget. */
+        pairingKey: staleRecord ? (staleRecord.serial ?? staleRecord.host) : null,
+        staleDeviceId: staleRecord ? (normalizeDeviceId(staleRecord.deviceId) ?? null) : null,
+      };
     });
 
     return {
       devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
     };
+  }
+
+  /**
+   * Delete a stored pairing. Used by the wizard's "Forget pairing" button when a
+   * pairing has gone stale (the FP2 was factory-reset, so its HAP identity — and
+   * therefore the saved credential — no longer exists).
+   *
+   * Deliberately an explicit user action rather than an automatic cleanup: the
+   * pairing file is the only thing standing between a working FP2 and a factory
+   * reset, so the plugin never removes one on its own.
+   *
+   * Input: { key } — the store key from /discover's `pairingKey` (serial for
+   * records written by current versions, host/IP for legacy ones).
+   */
+  async handleForget({ key } = {}) {
+    if (!key || typeof key !== 'string') {
+      throw new RequestError('key is required');
+    }
+    try {
+      await this.pairingStore().clear(key);
+    } catch (err) {
+      throw new RequestError('Could not remove the stored pairing: ' + (err?.message ?? err));
+    }
+    return { forgotten: true, key };
   }
 
   /**

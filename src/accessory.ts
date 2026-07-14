@@ -43,9 +43,11 @@ export class Fp2Accessory {
     client.on('disconnected', () => this.setStatusActive(false));
     // Without an 'error' listener, EventEmitter treats emit('error') as a throw
     // — that would crash Homebridge on every unreachable FP2. The HAP client
-    // already logs at warn level, so this listener just absorbs the event.
+    // already logs at warn level, so this listener only refreshes StatusFault:
+    // a terminal give-up isn't a 'disconnected' transition, so nothing else
+    // would surface it.
     client.on('error', () => {
-      /* logged by Fp2HapClient */
+      this.refreshFault();
     });
   }
 
@@ -98,6 +100,7 @@ export class Fp2Accessory {
     service.setCharacteristic(C.Name, safeName);
     service.getCharacteristic(C.OccupancyDetected).onGet(() => toHapOccupancy(this.client.getState().occupancy));
     service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
+    this.wireFault(service);
 
     // Eve "Last Activation" — added once per service lifetime. The
     // addOptionalCharacteristic typing wants the full class signature, but
@@ -126,6 +129,7 @@ export class Fp2Accessory {
     // Without it the value only tracks the last pushed update and can read 0
     // (stale) while the presence sensor reads 1.
     service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
+    this.wireFault(service);
     return service;
   }
 
@@ -201,6 +205,7 @@ export class Fp2Accessory {
           return toHapOccupancy(live?.occupancy ?? false);
         });
         service.getCharacteristic(C.StatusActive).onGet(() => this.client.getState().reachable);
+        this.wireFault(service);
         this.zoneServices.set(slug, service);
       }
       service.updateCharacteristic(C.OccupancyDetected, toHapOccupancy(zone.occupancy));
@@ -225,13 +230,34 @@ export class Fp2Accessory {
     }
   }
 
+  /** Wire a service's StatusFault to the client's terminal-error state, so a
+   *  read (not just a push) reports the fault. Mirrors the StatusActive getters. */
+  private wireFault(service: Service): void {
+    const C = this.platform.Characteristic;
+    service
+      .getCharacteristic(C.StatusFault)
+      .onGet(() => (this.client.getTerminalReason() ? C.StatusFault.GENERAL_FAULT : C.StatusFault.NO_FAULT));
+  }
+
   private setStatusActive(active: boolean): void {
     const C = this.platform.Characteristic;
-    this.mainOccupancyService.updateCharacteristic(C.StatusActive, active);
-    this.lightSensorService?.updateCharacteristic(C.StatusActive, active);
-    for (const svc of this.zoneServices.values()) {
+    // StatusActive alone is close to invisible in the Home app — an unreachable
+    // occupancy sensor still renders as a normal "No Motion" tile. StatusFault is
+    // what Home actually surfaces, so a device that has permanently given up
+    // (claimed by another controller, wrong pin, pairing dead after a factory
+    // reset) shows as faulty instead of silently reporting "nobody home" forever.
+    const fault = this.client.getTerminalReason() ? C.StatusFault.GENERAL_FAULT : C.StatusFault.NO_FAULT;
+    for (const svc of [this.mainOccupancyService, this.lightSensorService, ...this.zoneServices.values()]) {
+      if (!svc) continue;
       svc.updateCharacteristic(C.StatusActive, active);
+      svc.updateCharacteristic(C.StatusFault, fault);
     }
+  }
+
+  /** Re-evaluate StatusFault without changing reachability — called when the
+   *  client gives up terminally, which is not a 'disconnected' transition. */
+  private refreshFault(): void {
+    this.setStatusActive(this.client.getState().reachable);
   }
 
   private zoneDisplayName(name: string): string {

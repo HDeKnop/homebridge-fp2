@@ -159,3 +159,87 @@ describe('PairingStore', () => {
     expect(byId?.deviceId).toBe(sample.deviceId);
   });
 });
+
+describe('serial keying and legacy migration', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fp2-serial-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const withSerial: StoredPairing = { ...sample, serial: '54EF44508EA8' };
+
+  it('keys a record by its serial, not its host', async () => {
+    const store = new PairingStore(dir);
+    await store.save(withSerial);
+    // The serial is the only identifier stable across DHCP changes AND factory
+    // resets, so it must be the filename.
+    await expect(readFile(join(dir, '54EF44508EA8.json'), 'utf8')).resolves.toContain('54EF44508EA8');
+    await expect(store.findBySerial('54EF44508EA8')).resolves.toMatchObject({ serial: '54EF44508EA8' });
+  });
+
+  it('finds a serial record case-insensitively', async () => {
+    const store = new PairingStore(dir);
+    await store.save(withSerial);
+    await expect(store.findBySerial('54ef44508ea8')).resolves.toMatchObject({ deviceId: sample.deviceId });
+  });
+
+  it('still keys by host when the serial is unknown (legacy behaviour)', async () => {
+    const store = new PairingStore(dir);
+    await store.save(sample); // no serial
+    await expect(readFile(join(dir, '192.168.1.42.json'), 'utf8')).resolves.toContain('192.168.1.42');
+  });
+
+  it('loads a legacy host-keyed record written by an older version', async () => {
+    // Exactly what an existing install has on disk: keyed by IP, no serial field.
+    await writeFile(join(dir, '192.168.1.242.json'), JSON.stringify(sample), 'utf8');
+    const store = new PairingStore(dir);
+    // Must still be recoverable, or an upgrade would silently force a re-pair
+    // (which needs a physical factory reset of the FP2).
+    await expect(store.findByDeviceId(sample.deviceId)).resolves.toMatchObject({ deviceId: sample.deviceId });
+  });
+
+  it('keyFor prefers the serial and falls back to the host', () => {
+    const store = new PairingStore(dir);
+    expect(store.keyFor({ serial: '54EF44508EA8', host: '192.168.1.242' })).toBe('54EF44508EA8');
+    expect(store.keyFor({ serial: undefined, host: '192.168.1.242' })).toBe('192.168.1.242');
+    expect(store.keyFor({ serial: '   ', host: '192.168.1.242' })).toBe('192.168.1.242');
+  });
+});
+
+describe('findByAddresses (legacy record for a factory-reset device)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fp2-addr-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('finds a legacy IP-keyed record whose deviceId no longer matches the device', async () => {
+    // Exactly the real-world case that motivated this: an FP2 paired long ago
+    // (record keyed by IP, no serial), then factory-reset — so it now reports a
+    // DIFFERENT HAP id. findBySerial misses (no serial in the record) and
+    // findByDeviceId misses (id changed), so without an address lookup the
+    // record is invisible and the device gets misreported as claimed by another
+    // controller.
+    const legacy: StoredPairing = { ...sample, host: '192.168.1.242', deviceId: '4D:6E:53:19:26:3F' };
+    await writeFile(join(dir, '192.168.1.242.json'), JSON.stringify(legacy), 'utf8');
+    const store = new PairingStore(dir);
+
+    await expect(store.findBySerial('54EF44508EA8')).resolves.toBeNull();
+    await expect(store.findByDeviceId('2F:58:33:3C:3D:82')).resolves.toBeNull();
+    // ...but the address lookup finds it, which is what enables "stale pairing".
+    await expect(store.findByAddresses(['192.168.1.242', 'fe80::1'])).resolves.toMatchObject({
+      deviceId: '4D:6E:53:19:26:3F',
+    });
+  });
+
+  it('returns null when no address matches', async () => {
+    const store = new PairingStore(dir);
+    await expect(store.findByAddresses(['10.0.0.1'])).resolves.toBeNull();
+    await expect(store.findByAddresses([])).resolves.toBeNull();
+  });
+});

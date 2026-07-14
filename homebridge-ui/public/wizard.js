@@ -132,21 +132,35 @@ async function runDiscover() {
     for (const dev of devices) {
       const block = matchConfigBlock(dev, configured);
       if (block) matchedBlocks.add(block);
-      // Three states: configured here (we hold the pairing or have a config
-      // entry) → Configure; paired by another controller (sf=0, not ours) →
-      // blocked with reset guidance; otherwise available → pair as new.
-      const category = dev.knownByUs || block ? 'configured' : !dev.availableToPair ? 'claimed' : 'available';
+      // Four states, checked in this order:
+      //  - stale: we hold a pairing for this hardware but the FP2 was factory-
+      //    reset, so its HAP id changed and the credential is dead. Must be
+      //    checked BEFORE `claimed`: such a device also reports sf=0, and calling
+      //    it "paired elsewhere" sends the user off to remove it from Apple Home
+      //    when the real fix is to forget the dead pairing here.
+      //  - configured: we hold a valid pairing, or there's a config entry.
+      //  - claimed: paired by another controller (sf=0, not ours).
+      //  - available: free to pair.
+      const category = dev.stalePairing
+        ? 'stale'
+        : dev.knownByUs || block
+          ? 'configured'
+          : !dev.availableToPair
+            ? 'claimed'
+            : 'available';
       dev._configBlock = block;
       dev._category = category;
 
       const li = document.createElement('li');
       li.className = 'device';
       const badge =
-        category === 'configured'
-          ? '<span class="badge info">Set up here</span>'
-          : category === 'claimed'
-            ? '<span class="badge warn">Paired elsewhere</span>'
-            : '<span class="badge ok">Available</span>';
+        category === 'stale'
+          ? '<span class="badge warn">Stale pairing</span>'
+          : category === 'configured'
+            ? '<span class="badge info">Set up here</span>'
+            : category === 'claimed'
+              ? '<span class="badge warn">Paired elsewhere</span>'
+              : '<span class="badge ok">Available</span>';
       const displayName = block?.name ?? dev.name ?? 'Unknown FP2';
 
       li.innerHTML = `
@@ -163,6 +177,18 @@ async function runDiscover() {
           </div>
           ${badge}
         </div>
+        ${
+          category === 'stale'
+            ? `<p class="device-warn">This FP2 was factory-reset since it was paired here, so the
+                 saved pairing (HAP id <span class="mono">${escapeHtml(dev.staleDeviceId ?? '?')}</span>) can no
+                 longer work — the device now reports
+                 <span class="mono">${escapeHtml(dev.deviceId)}</span>.
+                 Remove the dead pairing, then pair it again.</p>
+               <button type="button" class="btn device-forget" data-pairing-key="${escapeHtml(dev.pairingKey ?? '')}">
+                 Forget pairing
+               </button>`
+            : ''
+        }
         ${
           category === 'claimed'
             ? `<p class="device-warn">This FP2 is paired with another controller.
@@ -225,6 +251,25 @@ async function runDiscover() {
       btn.addEventListener('click', () => {
         const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
         if (dev) enterConfigure(dev);
+      });
+    });
+
+    listEl.querySelectorAll('.device-forget').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const key = btn.dataset.pairingKey;
+        if (!key) return;
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+        try {
+          await homebridge.request('/forget', { key });
+          // Re-scan so the device drops out of "stale" and back into
+          // "available" — i.e. ready to pair again.
+          await runDiscover();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Forget pairing';
+          homebridge.toast.error(err?.message ?? String(err), 'Could not remove pairing');
+        }
       });
     });
   } catch (err) {

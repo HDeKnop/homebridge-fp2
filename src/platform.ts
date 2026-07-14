@@ -105,13 +105,28 @@ export class FP2Platform implements DynamicPlatformPlugin {
       const client = new Fp2HapClient(d, this.pairingStore, this.log, this.browser);
       const handler = new Fp2Accessory(this, accessory, client, d);
 
-      if (this.cachedAccessories.has(uuid)) {
+      // An FP2 that has NEVER connected is not published: exposing it would put a
+      // sensor in the Home app that silently reports "no occupancy" forever, which
+      // reads as working. It has no room or automations yet, so there is nothing to
+      // lose by withholding it until the first successful connect.
+      //
+      // One that HAS connected before stays published even while broken — it is
+      // faulted (StatusFault) instead. Unregistering it would destroy its room
+      // assignment and any automations referencing it.
+      const alreadyPublished = this.cachedAccessories.has(uuid);
+      if (alreadyPublished) {
         this.api.updatePlatformAccessories([accessory]);
-      } else {
+      }
+
+      const publish = () => {
+        if (this.cachedAccessories.has(uuid)) return;
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         this.cachedAccessories.set(uuid, accessory);
         this.log.info(`registered new FP2 accessory "${d.name}"`);
-      }
+      };
+      // Also publish if it only comes good on a later reconnect (e.g. the user
+      // freed it in the Home app), not just on the initial connect.
+      client.on('connected', publish);
 
       this.devices.push({ cfg: d, client, accessory, handler });
 
@@ -123,10 +138,17 @@ export class FP2Platform implements DynamicPlatformPlugin {
       client
         .connect()
         .then(() => {
+          publish();
           client.startPolling(d.pollIntervalSeconds ?? DEFAULT_POLL_SECONDS);
         })
         .catch(err => {
           this.log.error(`[${d.name}] initial connect failed: ${err instanceof Error ? err.message : String(err)}`);
+          if (!alreadyPublished) {
+            this.log.warn(
+              `[${d.name}] not exposing this FP2 to HomeKit until it connects successfully — ` +
+                'a sensor that never connects would show up as permanently unoccupied.'
+            );
+          }
         });
     }
 

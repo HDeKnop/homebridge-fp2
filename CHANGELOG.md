@@ -7,6 +7,39 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-07-14
+
+### Added
+
+- **Pairings are keyed by the Aqara hardware serial** (e.g. `54EF44508EA8` — the
+  accessory ID the Aqara app shows, and the device's MAC). It is the only
+  identifier stable for the life of the device: the HAP `deviceId` is regenerated
+  by a factory reset and the IP moves with DHCP, so keying on either could strand
+  a pairing. The serial comes from the `_Aqara-FP2._tcp` advertisement, joined to
+  the HAP record by their shared `.local` hostname. Records written by older
+  versions (keyed by IP, no serial) still load and are re-keyed automatically on
+  the next successful connect — no re-pairing, no factory reset.
+- **Stale pairings are detected and can be removed from the plugin settings.**
+  When the plugin holds a pairing for a device whose HAP id has since changed, the
+  FP2 was factory-reset and the saved credential can never work again. The setup
+  UI now flags it as "Stale pairing" and offers a **Forget pairing** button.
+  Pairing data is never deleted automatically — it is the only thing standing
+  between a working FP2 and a physical factory reset.
+
+### Fixed
+
+- **A stale pairing is no longer misreported as "already paired with another
+  controller."** A factory-reset FP2 also advertises `sf=0`, so the old guard sent
+  users to remove a device from Apple Home when the real fix was to discard the
+  dead pairing. The two cases are now distinguished and each gets accurate advice.
+- **A broken FP2 is now visible in the Home app instead of silently reporting "no
+  occupancy" forever.** A sensor that has permanently given up (claimed by another
+  controller, wrong pin, pairing dead after a reset) sets `StatusFault`, which Home
+  actually surfaces — `StatusActive` alone was close to invisible. An FP2 that has
+  never connected is no longer published to HomeKit at all; one that previously
+  worked stays published and is faulted, so its room assignment and any automations
+  referencing it survive.
+
 ## [0.5.0] — 2026-07-14
 
 ### Fixed
@@ -255,7 +288,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.4.3...v0.5.0
 [0.2.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/HDeKnop/homebridge-fp2/releases/tag/v0.1.0

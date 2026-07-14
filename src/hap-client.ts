@@ -5,6 +5,7 @@ import type { PairingData } from 'hap-controller';
 
 import { raceWithTimeout } from './async-util.js';
 import type { Fp2Browser } from './fp2-browser.js';
+import { normalizeDeviceId } from './mappers.js';
 import { PairingStore } from './pairing-store.js';
 import { type Accessories, parseAccessories } from './parser.js';
 import {
@@ -72,6 +73,12 @@ export class Fp2HapClient extends EventEmitter {
    *  the FP2's pair-setup attempt budget. Cleared on user-driven retry (eg.
    *  Homebridge restart, which spawns a fresh client). */
   private terminalReason: string | null = null;
+  /** Set on the first successful connect. The platform uses this to decide
+   *  whether to publish an accessory at all: a device that has NEVER connected
+   *  isn't exposed to HomeKit (nothing to lose), while one that previously worked
+   *  stays published and is faulted instead — removing it would destroy its room
+   *  assignment and any automations referencing it. */
+  private everConnected = false;
   /** Listener references kept so we can detach on disconnect. */
   private eventHandler: ((msg: HapEventMessage) => void) | null = null;
   private eventDisconnectHandler: (() => void) | null = null;
@@ -175,16 +182,65 @@ export class Fp2HapClient extends EventEmitter {
     // instant rather than a fresh multicast scan per reconnect.
     const discovered = await this.browser.resolve(this.cfg.host, DISCOVERY_TIMEOUT_MS, stored?.deviceId);
 
-    // If the host-based lookup missed but discovery did surface the FP2,
-    // try matching a previous pairing by deviceId. This handles the case
-    // where the user changed `host` in config (IP ↔ mDNS name) but the
-    // FP2 itself is the same device we paired with before.
+    // If the host-based lookup missed but discovery did surface the FP2, recover
+    // the pairing by a stabler identifier. Serial first — it survives both DHCP
+    // changes and factory resets, so it is the only key that reliably tells us
+    // "this is the same physical device". Then deviceId, which handles a record
+    // written before we knew the serial.
+    if (!stored && discovered?.serial) {
+      stored = await this.store.findBySerial(discovered.serial);
+      if (stored) {
+        this.log.info(
+          `[${this.cfg.name}] recovered pairing for serial ${discovered.serial} from prior key "${stored.host}" ` +
+            `(current config host is "${this.cfg.host}")`
+        );
+      }
+    }
     if (!stored && discovered) {
       stored = await this.store.findByDeviceId(discovered.deviceId);
       if (stored) {
         this.log.info(
           `[${this.cfg.name}] recovered pairing for ${discovered.deviceId} from prior host "${stored.host}" ` +
             `(current config host is "${this.cfg.host}")`
+        );
+      }
+    }
+    // Last resort, and the only way to see a LEGACY record for a device that was
+    // since factory-reset: such a record is keyed by IP with no serial, and its
+    // deviceId is the pre-reset one, so every lookup above misses it. Finding it
+    // is what lets us report "stale pairing" instead of wrongly blaming another
+    // controller.
+    if (!stored && discovered) {
+      stored = await this.store.findByAddresses([discovered.address, ...(discovered.allAddresses ?? [])]);
+      if (stored) {
+        this.log.debug(`[${this.cfg.name}] found legacy pairing keyed by address "${stored.host}"`);
+      }
+    }
+
+    // Stale-pairing detection. We hold a pairing for this exact hardware (serial
+    // matched) but the FP2 now reports a DIFFERENT HAP id — only a factory reset
+    // does that. The stored credential belongs to an identity that no longer
+    // exists, so it can never pair-verify. Surface it as a terminal, actionable
+    // error rather than letting the sf=0 guard below misreport it as "paired with
+    // another controller" (which sends the user chasing the wrong fix).
+    // We deliberately do NOT delete it here — removal is an explicit user action
+    // in the config UI ("Forget pairing").
+    if (stored && discovered) {
+      const idChanged = normalizeDeviceId(stored.deviceId)?.toLowerCase() !== normalizeDeviceId(discovered.deviceId)?.toLowerCase();
+      // Same hardware, established either by the stable serial (records written
+      // by this version) or — for a legacy record, which has no serial — by the
+      // fact that we found it under this device's own host/IP key.
+      const sameHardware =
+        stored.serial && discovered.serial
+          ? stored.serial.trim().toLowerCase() === discovered.serial.trim().toLowerCase()
+          : !stored.serial;
+      if (sameHardware && idChanged) {
+        const label = discovered.serial ?? stored.host;
+        this.markTerminalConfigError('stale pairing — FP2 was factory-reset');
+        throw new Error(
+          `stored pairing for ${label} is for HAP id ${normalizeDeviceId(stored.deviceId)}, but the FP2 now ` +
+            `reports ${normalizeDeviceId(discovered.deviceId)} — it was factory-reset, so the saved pairing is dead. ` +
+            'Remove it in the plugin settings ("Forget pairing"), then restart Homebridge to pair fresh.'
         );
       }
     }
@@ -239,14 +295,27 @@ export class Fp2HapClient extends EventEmitter {
       try {
         const accessories = await this.withTimeout('getAccessories', this.client.getAccessories());
         this.parseAccessories(accessories);
-        // Refresh stored host/port whenever mDNS surfaces a fresh value. The
-        // store keys files by host, so when the address changed remove the old
-        // file — otherwise stale duplicates accumulate and findByDeviceId may
-        // return an outdated record.
-        if (discovered && (discovered.port !== stored.port || discovered.address !== stored.host)) {
-          await this.store.save({ ...stored, host: discovered.address, port: discovered.port });
-          if (discovered.address !== stored.host) {
-            await this.store.clear(stored.host);
+        // Refresh the stored record whenever mDNS surfaces a fresher value, and
+        // migrate legacy host-keyed records onto the stable serial key. The file
+        // key is derived from the record, so recompute it before and after and
+        // remove the old file when it moves — otherwise duplicates accumulate and
+        // a lookup may return an outdated record.
+        if (discovered) {
+          const updated = {
+            ...stored,
+            host: discovered.address,
+            port: discovered.port,
+            serial: discovered.serial ?? stored.serial,
+          };
+          const oldKey = this.store.keyFor(stored);
+          const newKey = this.store.keyFor(updated);
+          const changed = updated.host !== stored.host || updated.port !== stored.port || updated.serial !== stored.serial;
+          if (changed) {
+            await this.store.save(updated);
+            if (newKey !== oldKey) {
+              this.log.info(`[${this.cfg.name}] re-keyed pairing ${oldKey} → ${newKey}`);
+              await this.store.clear(oldKey);
+            }
           }
         }
       } catch (err) {
@@ -277,12 +346,18 @@ export class Fp2HapClient extends EventEmitter {
       // the FP2's lockout budget. Aligned with ebaauw/fp2-proxy's
       // `availableToPair` check, which we treat as a terminal config error
       // since user action (Remove from Home / factory reset) is required.
+      //
+      // We only reach here with no stored pairing, so sf=0 genuinely means some
+      // OTHER controller (Apple Home / the Aqara app) holds it. The one case
+      // that could land here wrongly — our own pairing gone stale after a
+      // factory reset — is caught above and reported as such, so this message
+      // no longer sends the user chasing the wrong fix.
       if (discovered && !discovered.availableToPair) {
         this.markTerminalConfigError('FP2 already paired with another controller');
         throw new Error(
-          `FP2 reports it is already paired (sf=${discovered.statusFlags}). ` +
-            'Remove it from Apple Home (Home app → device → Settings → Remove Accessory), ' +
-            'or factory-reset via 10s long-press, then restart Homebridge.'
+          `FP2 reports it is already paired (sf=${discovered.statusFlags}) and this plugin holds no pairing for it. ` +
+            'It is claimed by another controller — remove it from Apple Home (Home app → device → Settings → ' +
+            'Remove Accessory) or the Aqara app, or factory-reset via 10s long-press, then restart Homebridge.'
         );
       }
 
@@ -339,6 +414,7 @@ export class Fp2HapClient extends EventEmitter {
         host: address,
         port,
         pairing,
+        serial: discovered?.serial,
         pairedAt: new Date().toISOString(),
       });
       this.log.info(`[${this.cfg.name}] paired successfully (deviceId=${deviceId})`);
@@ -356,6 +432,7 @@ export class Fp2HapClient extends EventEmitter {
 
     this.reconnectDelay = RECONNECT_INITIAL_MS;
     this.consecutiveFailures = 0;
+    this.everConnected = true;
     this.emit('connected');
     this.emit('state', this.state);
     this.log.info(
@@ -510,6 +587,22 @@ export class Fp2HapClient extends EventEmitter {
 
   private markTerminalConfigError(reason: string): void {
     this.terminalReason = reason;
+  }
+
+  /**
+   * The reason this FP2 has permanently given up connecting (already paired
+   * elsewhere, wrong pin, stale pairing after a factory reset), or null if it is
+   * connected or still retrying. Drives the accessory's StatusFault so a broken
+   * FP2 is visible in the Home app rather than sitting there reporting "no
+   * occupancy" forever.
+   */
+  getTerminalReason(): string | null {
+    return this.terminalReason ?? null;
+  }
+
+  /** True once this FP2 has connected at least once in this process. */
+  hasEverConnected(): boolean {
+    return this.everConnected;
   }
 
   private scheduleReconnect(): void {

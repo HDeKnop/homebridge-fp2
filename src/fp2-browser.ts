@@ -74,13 +74,14 @@ function toHapService(svc: Service): HapServiceUp | null {
   };
 }
 
-function toDiscovered(svc: HapServiceUp): DiscoveredFp2 {
+function toDiscovered(svc: HapServiceUp, serial?: string): DiscoveredFp2 {
   return {
     deviceId: svc.id,
     address: svc.address,
     port: svc.port,
     name: svc.name,
     allAddresses: svc.allAddresses,
+    serial,
     statusFlags: svc.sf,
     featureFlags: svc.ff ?? 0,
     // sf bit 0 set == "AccessoryNotPaired" == pair-setup is currently permitted.
@@ -119,8 +120,16 @@ function asHapService(dev: DiscoveredFp2): HapServiceUp {
 export class Fp2Browser {
   private bonjour: BonjourInstance | null = null;
   private browser: Browser | null = null;
+  private aqaraBrowser: Browser | null = null;
   private requery: NodeJS.Timeout | null = null;
   private readonly cache = new Map<string, DiscoveredFp2>();
+  /** `.local` hostname (lowercased) → Aqara hardware serial. Populated from
+   *  `_Aqara-FP2._tcp`, whose records share a hostname with the `_hap._tcp` ones
+   *  but carry no HAP id — the hostname is the only join key between them. */
+  private readonly serialByHost = new Map<string, string>();
+  /** HAP records seen before their Aqara counterpart arrived, so the serial can
+   *  be back-filled when it does (the two services resolve independently). */
+  private readonly hostByDeviceId = new Map<string, string>();
   private readonly waiters = new Set<(svc: HapServiceUp) => void>();
   /** Set by stop(). Makes shutdown final: a reconnect still in flight when
    *  Homebridge shuts down would otherwise call start() again through resolve()
@@ -144,6 +153,28 @@ export class Fp2Browser {
     });
     this.browser = this.bonjour.find({ type: 'hap', protocol: 'tcp' });
 
+    // Second browse, purely for identity: `_Aqara-FP2._tcp` carries the hardware
+    // serial (the accessory ID the Aqara app shows) but no HAP id or port, so it
+    // is useless for pairing and used ONLY to attach a stable key to the HAP
+    // record it shares a `.local` hostname with.
+    this.aqaraBrowser = this.bonjour.find({ type: 'Aqara-FP2', protocol: 'tcp' });
+    const onAqara = (svc: Service) => {
+      const serial = ((svc.txt ?? {}) as Record<string, string>).serialNumber;
+      const host = svc.host?.toLowerCase();
+      if (!serial || !host) return;
+      this.serialByHost.set(host, serial);
+      // The two services resolve independently, so the HAP record may already be
+      // cached without its serial — back-fill it now.
+      for (const [deviceId, cachedHost] of this.hostByDeviceId) {
+        if (cachedHost !== host) continue;
+        const dev = this.cache.get(deviceId);
+        if (dev && !dev.serial) this.cache.set(deviceId, { ...dev, serial });
+      }
+    };
+    this.aqaraBrowser.on('up', onAqara);
+    this.aqaraBrowser.on('srv-update', onAqara);
+    this.aqaraBrowser.on('txt-update', onAqara);
+
     const onUp = (svc: Service) => this.ingest(svc);
     this.browser.on('up', onUp);
     // An FP2 that reboots comes back on a *new* ephemeral HAP port and
@@ -164,6 +195,7 @@ export class Fp2Browser {
     this.requery = setInterval(() => {
       try {
         this.browser?.update();
+        this.aqaraBrowser?.update();
       } catch (err) {
         this.log.debug(`[discovery] re-query failed: ${(err as Error).message}`);
       }
@@ -177,10 +209,12 @@ export class Fp2Browser {
       clearInterval(this.requery);
       this.requery = null;
     }
-    try {
-      this.browser?.stop();
-    } catch {
-      /* noop */
+    for (const b of [this.browser, this.aqaraBrowser]) {
+      try {
+        b?.stop();
+      } catch {
+        /* noop */
+      }
     }
     try {
       this.bonjour?.destroy();
@@ -188,16 +222,23 @@ export class Fp2Browser {
       /* noop */
     }
     this.browser = null;
+    this.aqaraBrowser = null;
     this.bonjour = null;
     this.waiters.clear();
     this.cache.clear();
+    this.serialByHost.clear();
+    this.hostByDeviceId.clear();
   }
 
   private ingest(svc: Service): void {
     const hap = toHapService(svc);
     if (!hap) return;
+    const host = svc.host?.toLowerCase();
+    if (host) this.hostByDeviceId.set(hap.id, host);
+    // May be undefined if the Aqara record hasn't resolved yet; onAqara back-fills.
+    const serial = host ? this.serialByHost.get(host) : undefined;
     const prev = this.cache.get(hap.id);
-    this.cache.set(hap.id, toDiscovered(hap));
+    this.cache.set(hap.id, toDiscovered(hap, serial ?? prev?.serial));
     if (!prev) {
       this.log.debug(`[discovery] FP2 ${svc.name} id=${hap.id} at ${hap.address}:${hap.port} sf=${hap.sf}`);
     } else if (prev.address !== hap.address || prev.port !== hap.port) {
@@ -261,7 +302,8 @@ export class Fp2Browser {
         resolve(result);
       };
       const waiter = (svc: HapServiceUp) => {
-        if (matchesService(svc, host, preferredDeviceId)) finish(toDiscovered(svc));
+        // Prefer the cached entry: ingest() has already attached the serial to it.
+        if (matchesService(svc, host, preferredDeviceId)) finish(this.cache.get(svc.id) ?? toDiscovered(svc));
       };
       const timer = setTimeout(() => {
         this.log.debug(

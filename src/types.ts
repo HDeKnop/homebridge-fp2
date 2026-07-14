@@ -62,9 +62,17 @@ export interface PairingData {
 }
 
 export interface StoredPairing {
+  /** HAP pairing identity. NOT stable: a factory reset regenerates it, which is
+   *  exactly what makes a pairing record go stale. Compare against the live mDNS
+   *  id to detect that. */
   deviceId: string;
   host: string;
   port: number;
   pairing: PairingData;
   pairedAt: string;
+  /** Aqara hardware serial (e.g. `54EF44508EA8`) — the device's MAC and the
+   *  accessory ID shown in the Aqara app. Stable across factory resets, so it is
+   *  the file key for records written by this version. Optional: records written
+   *  by older versions were keyed by host/IP and have no serial. */
+  serial?: string;
 }
