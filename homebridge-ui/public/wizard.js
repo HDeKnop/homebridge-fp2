@@ -109,7 +109,22 @@ function renderOfflineDevice(block) {
 
 /* ─── Step 1: Discover ─────────────────────────────────────────────── */
 
+/* Guards against overlapping scans. Two runs racing (a rescan click while one is
+ * still in flight, or a reset + init firing together) each clear the list and then
+ * each append their own results — so every device renders twice. Serialising is
+ * not enough on its own: a queued run would still repaint after the first, so
+ * concurrent callers simply share the in-flight scan. */
+let discoverInFlight = null;
+
 async function runDiscover() {
+  if (discoverInFlight) return discoverInFlight;
+  discoverInFlight = doDiscover().finally(() => {
+    discoverInFlight = null;
+  });
+  return discoverInFlight;
+}
+
+async function doDiscover() {
   const statusEl = $('#discover-status');
   const listEl = $('#device-list');
   const emptyEl = $('#no-devices');
@@ -127,6 +142,11 @@ async function runDiscover() {
       loadConfiguredDevices(),
     ]);
     statusEl.hidden = true;
+
+    // Clear again now the await has resolved. The clear above happens before the
+    // scan, so on its own it leaves a window in which a second render could append
+    // to an already-populated list — which is what made every device appear twice.
+    listEl.innerHTML = '';
 
     // Config blocks rendered via a live (discovered) device; the remainder are
     // appended afterwards as "configured but not detected right now".
@@ -726,28 +746,40 @@ async function saveAndAddAnother() {
 }
 
 async function finish() {
-  const ok = await save();
-  if (!ok) return;
-  await restartAndFinish();
+  const btn = $('#finish-btn');
+  btn.disabled = true;
+  try {
+    // save() reports its own failure into #save-error and returns false; anything
+    // it throws is a bug, but must still surface — a Finish button that appears to
+    // do nothing at all is the worst possible outcome here.
+    const ok = await save();
+    if (!ok) return;
+    await restartAndFinish();
+  } catch (err) {
+    const errEl = $('#save-error');
+    errEl.textContent = `Could not finish: ${err?.message ?? err}. Your config may still have been saved — check the plugin settings.`;
+    errEl.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function restartAndFinish() {
-  const errEl = $('#restart-error');
-  errEl.hidden = true;
-  homebridge.showSpinner();
+  // Deliberately no self-restart: Config UI X owns restarting Homebridge, and it
+  // already shows its own "restart required" prompt once savePluginConfig() has
+  // run. The plugin used to POST /api/server/restart itself, which was wrong on
+  // two counts — the route is a PUT (the POST 404s) and it requires auth (401) —
+  // so the request could never succeed, and because it was awaited with no
+  // timeout, Finish could sit on a spinner and never close the window.
+  //
+  // closeSettings() is wrapped because it must never be the thing that stops the
+  // wizard from closing: if it throws, the user is stuck on a dead dialog with
+  // their config already saved.
   try {
-    const { restarted, message } = await homebridge.request('/restart-bridge');
-    homebridge.hideSpinner();
-    if (restarted) {
-      homebridge.toast.success('Child bridge is restarting…', 'Restart triggered');
-    } else {
-      homebridge.toast.info(message ?? 'Please restart Homebridge manually.', 'Restart manually');
-    }
+    homebridge.closeSettings();
   } catch (err) {
-    homebridge.hideSpinner();
-    homebridge.toast.info('Please restart Homebridge manually to apply the new config.', 'Restart manually');
+    homebridge.toast.info('Configuration saved. Close this window and restart Homebridge to apply it.', 'Saved');
   }
-  homebridge.closeSettings();
 }
 
 /* ─── Utilities ────────────────────────────────────────────────────── */

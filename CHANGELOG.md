@@ -7,6 +7,27 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-07-14
+
+### Fixed
+
+- **"Finish" in the setup wizard did nothing.** The window stayed open, the bridge
+  never restarted, and no error was shown. Finish called `POST /api/server/restart`
+  on the Config UI X API, but that route is a `PUT` (the `POST` 404s) and it
+  requires authentication (401), so the restart could never succeed — and because
+  the request was awaited with no timeout, the wizard could sit on a spinner
+  indefinitely. The plugin no longer tries to restart Homebridge itself: Config UI
+  X owns that and already prompts for a restart once the config is saved. Finish
+  now saves, closes the window, and can no longer fail silently — any error is
+  surfaced instead of leaving a dead button. (The config *was* being saved
+  correctly throughout; only the restart step failed.)
+- **The scan list showed every sensor twice.** Two discovery runs could overlap
+  (a rescan click while one was still in flight, or the initial load racing a
+  reset); each cleared the device list and then each appended its own results, so
+  every device rendered twice. Concurrent callers now share the in-flight scan, and
+  the list is rebuilt atomically after the scan resolves rather than cleared before
+  it.
+
 ## [0.5.4] — 2026-07-14
 
 ### Fixed
@@ -326,7 +347,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...v0.5.2

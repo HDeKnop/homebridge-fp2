@@ -6,7 +6,10 @@
 //   - "normalize-pin"   → coerce sticker (XXXX-XXXX) format to HAP (XXX-XX-XXX)
 //   - "pair"            → pair live with an FP2 and enumerate its services so
 //                         the wizard can show / rename them during setup
-//   - "restart-bridge"  → ask Config UI X to restart Homebridge
+//   - "forget"          → delete a stored pairing (stale, or removing a device)
+//
+// Restarting Homebridge is deliberately NOT done here: Config UI X owns that, and
+// shows its own "restart required" prompt once the config is saved.
 //
 // mDNS cannot run in the browser; that's the whole reason this server exists.
 // Browsing is delegated to the plugin's own compiled Fp2Browser (bonjour-service
@@ -41,7 +44,6 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/inspect', this.handleInspect.bind(this));
-    this.onRequest('/restart-bridge', this.handleRestartBridge.bind(this));
 
     // Tell the parent UI we're ready to receive requests.
     this.ready();
@@ -438,28 +440,6 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     return `Pairing failed (${raw}). Check that the FP2 is powered on, reachable, and not already paired with another controller.`;
   }
 
-  /**
-   * Attempt to restart the Homebridge child bridge via the Config UI X REST
-   * API (POST /api/server/restart). Works when auth is disabled or when the
-   * UI is accessible on the default port without credentials. Falls back
-   * gracefully so the caller can show a "restart manually" message.
-   */
-  async handleRestartBridge() {
-    const uiPort = process.env.HOMEBRIDGE_UI_PORT ?? '8581';
-    try {
-      const res = await fetch(`http://localhost:${uiPort}/api/server/restart`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.ok || res.status === 200 || res.status === 204) {
-        return { restarted: true };
-      }
-      // 401/403 = auth required — tell the UI to show manual instructions.
-      return { restarted: false, message: 'Please restart Homebridge manually to apply the new config.' };
-    } catch {
-      return { restarted: false, message: 'Please restart Homebridge manually to apply the new config.' };
-    }
-  }
 }
 
 (() => new Fp2UiServer())();
