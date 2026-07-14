@@ -7,6 +7,18 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-07-14
+
+### Added
+
+- **"Remove device" in the setup UI.** Deletes an FP2's stored pairing *and* its
+  `config.json` entry; its HomeKit accessory is unregistered on the next restart.
+  This is deliberately separate from **Forget pairing**, which drops only the
+  credential so the *same* sensor can be re-paired while keeping its name, zone
+  names, room and automations. Available for any configured FP2, including one
+  that is offline (a sensor you have permanently removed could otherwise never be
+  cleared from the UI, since "Configure" needs the device reachable).
+
 ## [0.5.2] — 2026-07-14
 
 ### Fixed
@@ -301,7 +313,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.4.3...v0.5.0

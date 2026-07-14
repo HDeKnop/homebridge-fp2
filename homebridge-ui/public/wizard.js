@@ -100,6 +100,9 @@ function renderOfflineDevice(block) {
     <button type="button" class="btn primary device-configure-offline" data-config-host="${escapeHtml(block.host)}">
       Configure this device
     </button>
+    <button type="button" class="btn device-remove" data-config-host="${escapeHtml(block.host)}" data-pairing-key="">
+      Remove device
+    </button>
   `;
   return li;
 }
@@ -213,6 +216,18 @@ async function runDiscover() {
                  </button>`
               : ''
         }
+        ${
+          // Offered whenever this FP2 has a config entry — including a working one,
+          // since removing a device you no longer want is a normal thing to do.
+          // "Forget pairing" (above) only drops the credential so the same sensor
+          // can be re-paired; this removes the device from the plugin entirely.
+          block
+            ? `<button type="button" class="btn device-remove" data-config-host="${escapeHtml(block.host)}"
+                       data-pairing-key="${escapeHtml(dev.pairingKey ?? '')}">
+                 Remove device
+               </button>`
+            : ''
+        }
       `;
       listEl.appendChild(li);
     }
@@ -261,6 +276,29 @@ async function runDiscover() {
       btn.addEventListener('click', () => {
         const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
         if (dev) enterConfigure(dev);
+      });
+    });
+
+    listEl.querySelectorAll('.device-remove').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const configHost = btn.dataset.configHost;
+        if (!configHost) return;
+        // Destructive and not undoable from here: it drops the pairing, the config
+        // entry, and (on restart) the HomeKit accessory along with its room and any
+        // automations referencing it. Confirm first.
+        if (!window.confirm(`Remove "${configHost}" from this plugin?\n\nThis deletes its pairing and its config entry. Its HomeKit accessory (and any automations using it) will be removed when Homebridge restarts.`)) {
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+        try {
+          await removeDevice({ configHost, pairingKey: btn.dataset.pairingKey || null });
+          await runDiscover();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Remove device';
+          homebridge.toast.error(err?.message ?? String(err), 'Could not remove device');
+        }
       });
     });
 
@@ -615,6 +653,32 @@ async function renderConfirm() {
     platform.devices.push(block);
   }
   await homebridge.updatePluginConfig(all);
+}
+
+/* Fully remove a device: its stored pairing, its config.json entry, and (by way
+ * of the platform's prune-on-start) its HomeKit accessory.
+ *
+ * Distinct from "Forget pairing", which drops only the credential and keeps the
+ * config entry — that is what you want when re-pairing the SAME sensor, since it
+ * preserves its name, zone names, room and automations. This is the "get rid of
+ * it" action. Returns true on success.
+ */
+async function removeDevice({ configHost, pairingKey }) {
+  // Drop the pairing first. If this fails we stop, rather than leave a config
+  // with no entry but a credential still on disk. Pass configHost too: an offline
+  // device wasn't in the scan, so we have no pairing key for it and the server has
+  // to resolve the record itself.
+  await homebridge.request('/forget', { key: pairingKey || undefined, configHost });
+  const all = await homebridge.getPluginConfig();
+  const platform = (all ?? []).find((p) => p.platform === PLATFORM_NAME);
+  if (platform && Array.isArray(platform.devices) && configHost) {
+    platform.devices = platform.devices.filter((d) => d.host !== configHost);
+    await homebridge.updatePluginConfig(all);
+    await homebridge.savePluginConfig();
+  }
+  // The accessory itself is unregistered by the platform on next start: it prunes
+  // any cached accessory whose host is no longer in config.
+  return true;
 }
 
 /* Write the device into config.json. Returns true on success. */

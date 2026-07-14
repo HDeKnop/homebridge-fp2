@@ -143,8 +143,10 @@ class Fp2UiServer extends HomebridgePluginUiServer {
         /** True when we hold a pairing for this hardware that can never work
          *  again — the device was reset. The UI offers "Forget pairing". */
         stalePairing: staleRecord !== undefined,
-        /** The store key to pass to /forget. */
-        pairingKey: staleRecord ? (staleRecord.serial ?? staleRecord.host) : null,
+        /** The store key to pass to /forget — for ANY pairing we hold (stale or
+         *  valid), since "Remove device" has to delete a working device's pairing
+         *  too. Null when we hold no pairing at all. */
+        pairingKey: record ? (record.serial?.trim() || record.host) : null,
         staleDeviceId: staleRecord ? (normalizeDeviceId(staleRecord.deviceId) ?? null) : null,
       };
     });
@@ -166,16 +168,36 @@ class Fp2UiServer extends HomebridgePluginUiServer {
    * Input: { key } — the store key from /discover's `pairingKey` (serial for
    * records written by current versions, host/IP for legacy ones).
    */
-  async handleForget({ key } = {}) {
-    if (!key || typeof key !== 'string') {
-      throw new RequestError('key is required');
+  async handleForget({ key, configHost } = {}) {
+    const store = this.pairingStore();
+    const keys = new Set();
+    if (typeof key === 'string' && key) keys.add(key);
+
+    // An offline device isn't in the scan, so the UI has no pairing key for it —
+    // only the config host. Resolve the record ourselves so "Remove device" can't
+    // leave an orphaned credential behind. Records may be keyed by serial (current)
+    // or host/IP (legacy), and a legacy one is keyed by the resolved IP rather than
+    // the config host, so match on the record's own fields too.
+    if (typeof configHost === 'string' && configHost) {
+      keys.add(configHost);
+      try {
+        for (const rec of await store.listAll()) {
+          if (rec.host === configHost) keys.add(store.keyFor(rec));
+        }
+      } catch {
+        /* store unreadable — fall through with whatever keys we have */
+      }
+    }
+
+    if (keys.size === 0) {
+      throw new RequestError('key or configHost is required');
     }
     try {
-      await this.pairingStore().clear(key);
+      for (const k of keys) await store.clear(k);
     } catch (err) {
       throw new RequestError('Could not remove the stored pairing: ' + (err?.message ?? err));
     }
-    return { forgotten: true, key };
+    return { forgotten: true, keys: [...keys] };
   }
 
   /**
