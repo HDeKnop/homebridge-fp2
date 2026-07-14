@@ -788,10 +788,26 @@ async function restartAndFinish() {
   // wizard from closing: if it throws, the user is stuck on a dead dialog with
   // their config already saved.
   try {
-    homebridge.closeSettings();
-  } catch (err) {
-    homebridge.toast.info('Configuration saved. Close this window and restart Homebridge to apply it.', 'Saved');
+    // init() disables the parent's own SAVE button (the wizard drives saving
+    // itself). Re-enable it before asking the modal to close: leaving the parent's
+    // controls disabled is what stops it dismissing cleanly.
+    homebridge.enableSaveButton();
+  } catch {
+    /* non-fatal — closing is what matters */
   }
+  try {
+    homebridge.closeSettings();
+  } catch {
+    /* fall through to the toast below */
+  }
+  // closeSettings() is fire-and-forget (it posts {action:'close'} to the parent
+  // and cannot report back), and a custom UI has no way to restart Homebridge —
+  // there is no such action in the plugin-ui-utils API. So always tell the user
+  // what to do next, rather than assuming the window went away.
+  homebridge.toast.success(
+    'Configuration saved. Restart Homebridge to apply it — the UI will prompt you.',
+    'Saved'
+  );
 }
 
 /* ─── Utilities ────────────────────────────────────────────────────── */

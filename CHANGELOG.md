@@ -7,6 +7,19 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-07-14
+
+### Fixed
+
+- **Finish now always tells you what happened.** The config was being saved and the
+  wizard's own form dismissed, but the settings modal did not close and no restart
+  was offered, so it looked like nothing happened. A custom UI cannot restart
+  Homebridge — there is no such action in the plugin-ui-utils API — and
+  `closeSettings()` is fire-and-forget, so it cannot report whether the modal
+  actually closed. Finish now re-enables the parent's save button before asking the
+  modal to close (leaving it disabled prevented a clean dismiss) and always shows a
+  confirmation telling you the config is saved and a restart is needed.
+
 ## [0.5.6] — 2026-07-14
 
 ### Changed
@@ -359,7 +372,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.6...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.7...HEAD
+[0.5.7]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.6...v0.5.7
 [0.5.6]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.3...v0.5.4
