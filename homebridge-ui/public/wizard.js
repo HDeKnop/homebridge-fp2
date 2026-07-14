@@ -181,13 +181,21 @@ async function doDiscover(quick = false) {
       //  - claimed: paired by another controller (sf=0, not ours) — must be freed
       //    in Apple Home / Aqara first.
       //  - available: free to pair.
+      // Two independent facts, which the UI used to collapse into one:
+      //   knownByUs — we hold a valid HAP pairing for this device
+      //   block     — it has an entry in config.json
+      // "Paired but not in config" is a real state (it was just paired, or its
+      // config entry was removed) and needs finishing, not the same "Set up here"
+      // badge as a device that is fully configured and running.
       const category = dev.stalePairing
         ? 'stale'
-        : dev.knownByUs
-          ? 'configured'
-          : !dev.availableToPair
-            ? 'claimed'
-            : 'available';
+        : dev.knownByUs && block
+          ? 'configured' // paired AND in config — fully set up
+          : dev.knownByUs
+            ? 'needs-config' // paired, but no config entry yet — finish setting it up
+            : !dev.availableToPair
+              ? 'claimed'
+              : 'available';
       dev._configBlock = block;
       dev._category = category;
 
@@ -197,10 +205,12 @@ async function doDiscover(quick = false) {
         category === 'stale'
           ? '<span class="badge warn">Stale pairing</span>'
           : category === 'configured'
-            ? '<span class="badge info">Set up here</span>'
-            : category === 'claimed'
-              ? '<span class="badge warn">Paired elsewhere</span>'
-              : '<span class="badge ok">Available</span>';
+            ? '<span class="badge info">Configured</span>'
+            : category === 'needs-config'
+              ? '<span class="badge ok">Paired — needs setup</span>'
+              : category === 'claimed'
+                ? '<span class="badge warn">Paired elsewhere</span>'
+                : '<span class="badge ok">Available</span>';
       const displayName = block?.name ?? dev.name ?? 'Unknown FP2';
 
       li.innerHTML = `
@@ -238,15 +248,25 @@ async function doDiscover(quick = false) {
             : ''
         }
         ${
-          category === 'configured'
-            ? `<button type="button" class="btn primary device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
-                 Configure this device
+          // A device that is paired but has no config entry still has work to do —
+          // give it the primary call-to-action. One that is fully configured and
+          // running is offered a quieter "Reconfigure", so the list doesn't imply
+          // every set-up sensor is an outstanding task.
+          category === 'needs-config'
+            ? `<p class="hint">Paired, but not in your config yet — finish setting it up to
+                 expose it to HomeKit.</p>
+               <button type="button" class="btn primary device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
+                 Finish setting up
                </button>`
-            : category === 'available'
-              ? `<button type="button" class="btn primary device-pick" data-device-id="${escapeHtml(dev.deviceId)}">
-                   Use this device
+            : category === 'configured'
+              ? `<button type="button" class="btn device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
+                   Reconfigure
                  </button>`
-              : ''
+              : category === 'available'
+                ? `<button type="button" class="btn primary device-pick" data-device-id="${escapeHtml(dev.deviceId)}">
+                     Use this device
+                   </button>`
+                : ''
         }
         ${
           // Offered whenever this FP2 has a config entry — including a working one,
