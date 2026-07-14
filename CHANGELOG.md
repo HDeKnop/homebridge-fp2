@@ -7,6 +7,19 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-07-14
+
+### Fixed
+
+- **A device whose pairing was just forgotten no longer offers "Configure this
+  device."** The setup UI treated a device as configured if it merely had a config
+  entry, so after "Forget pairing" it still showed a Configure button — which could
+  only fail with "no saved pairing was found". A config entry alone is no longer
+  enough; the plugin must actually hold a valid pairing. Such a device now shows its
+  true state (claimed by another controller, or available to pair).
+- **Re-pairing an FP2 that still has a config entry updates that entry instead of
+  appending a duplicate**, so its name, zone names and options survive.
+
 ## [0.5.1] — 2026-07-14
 
 ### Added
@@ -288,7 +301,8 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 - Pure-function parser / mapper modules isolated from `hap-controller` and
   Homebridge runtime, enabling fixture-based testing without a live FP2.
 
-[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.4.3...v0.5.0
 [0.2.0]: https://github.com/HDeKnop/homebridge-fp2/compare/v0.1.0...v0.2.0

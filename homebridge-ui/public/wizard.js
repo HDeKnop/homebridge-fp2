@@ -138,12 +138,17 @@ async function runDiscover() {
       //    checked BEFORE `claimed`: such a device also reports sf=0, and calling
       //    it "paired elsewhere" sends the user off to remove it from Apple Home
       //    when the real fix is to forget the dead pairing here.
-      //  - configured: we hold a valid pairing, or there's a config entry.
-      //  - claimed: paired by another controller (sf=0, not ours).
+      //  - configured: we hold a VALID pairing (knownByUs). A config entry alone
+      //    is not enough — after "Forget pairing" the entry still exists but the
+      //    credential is gone, and offering "Configure" would just fail with
+      //    "no saved pairing". Such a device has to be paired again, so it falls
+      //    through to claimed/available like any other unpaired FP2.
+      //  - claimed: paired by another controller (sf=0, not ours) — must be freed
+      //    in Apple Home / Aqara first.
       //  - available: free to pair.
       const category = dev.stalePairing
         ? 'stale'
-        : dev.knownByUs || block
+        : dev.knownByUs
           ? 'configured'
           : !dev.availableToPair
             ? 'claimed'
@@ -238,9 +243,14 @@ async function runDiscover() {
         const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
         if (!dev) return;
         state.mode = 'pair';
-        state.matchedConfigHost = null;
+        // An FP2 being re-paired (its pairing was forgotten, or it was reset)
+        // usually still has its config entry. Reuse it so we update that block in
+        // place — keeping the user's chosen name, zone names and options — rather
+        // than appending a duplicate entry for the same device.
+        const existing = dev._configBlock;
+        state.matchedConfigHost = existing?.host ?? null;
         state.selectedDevice = dev;
-        state.name = suggestDefaultName(dev);
+        state.name = existing?.name ?? suggestDefaultName(dev);
         $('#manual-host-field').hidden = true;
         show('pin');
         $('#pin-input').focus();
