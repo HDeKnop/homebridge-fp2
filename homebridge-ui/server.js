@@ -3,7 +3,6 @@
 // Runs inside Homebridge Config UI X's Node process. Exposes RPC endpoints
 // the wizard calls from the browser:
 //   - "discover"        → mDNS scan for FP2 devices on the LAN
-//   - "normalize-pin"   → coerce sticker (XXXX-XXXX) format to HAP (XXX-XX-XXX)
 //   - "pair"            → pair live with an FP2 and enumerate its services so
 //                         the wizard can show / rename them during setup
 //   - "forget"          → delete a stored pairing (stale, or removing a device)
@@ -30,12 +29,8 @@ import { Fp2Browser } from '../dist/fp2-browser.js';
 import { parseAccessories } from '../dist/parser.js';
 import { PairingStore } from '../dist/pairing-store.js';
 import { normalizeDeviceId } from '../dist/mappers.js';
-import { DISCOVERY_TIMEOUT_MS, STORAGE_SUBDIR } from '../dist/settings.js';
-
-/** How long /check-known waits for a configured device to answer. Shorter than
- *  a full scan window: resolve() answers the moment the device replies (the
- *  unicast probe typically lands within a second), so this is a ceiling. */
-const CHECK_KNOWN_TIMEOUT_MS = 5_000;
+import { CHECK_KNOWN_TIMEOUT_MS, DISCOVERY_TIMEOUT_MS, SCAN_RACE_MARGIN_MS, STORAGE_SUBDIR } from '../dist/settings.js';
+import { normalizePin } from '../dist/validation.js';
 
 class Fp2UiServer extends HomebridgePluginUiServer {
   constructor() {
@@ -46,7 +41,6 @@ class Fp2UiServer extends HomebridgePluginUiServer {
 
     this.onRequest('/discover', this.handleDiscover.bind(this));
     this.onRequest('/forget', this.handleForget.bind(this));
-    this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/inspect', this.handleInspect.bind(this));
     this.onRequest('/check-known', this.handleCheckKnown.bind(this));
@@ -82,11 +76,10 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       // scan ever failed to settle, the request would hang forever with no error
       // shown — the browser's "Scan timed out" with nothing in the log. Fail loudly
       // instead.
+      const ceilingMs = timeoutMs + SCAN_RACE_MARGIN_MS;
       found = await Promise.race([
         this.browser().scanAll(timeoutMs),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`mDNS scan did not complete within ${timeoutMs + 5000}ms`)), timeoutMs + 5000)
-        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`mDNS scan did not complete within ${ceilingMs}ms`)), ceilingMs)),
       ]);
     } catch (err) {
       throw new RequestError('Could not run mDNS discovery: ' + (err?.message ?? err));
@@ -272,7 +265,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
         /** The store key to pass to /forget — for ANY pairing we hold (stale or
          *  valid), since "Remove device" has to delete a working device's pairing
          *  too. Null when we hold no pairing at all. */
-        pairingKey: record ? (record.serial?.trim() || record.host) : null,
+        pairingKey: record ? record.serial?.trim() || record.host : null,
         staleDeviceId: staleRecord ? (normalizeDeviceId(staleRecord.deviceId) ?? null) : null,
       };
     });
@@ -299,9 +292,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       targets.map(async host => {
         // Prefer the stored pairing's deviceId so the check follows the FP2
         // across a DHCP address change, exactly like the runtime does.
-        const rec = records.find(
-          r => r.host === host || r.name === host || this.nameFromSerial(r.serial) === host
-        );
+        const rec = records.find(r => this.recordMatchesHost(r, host));
         const preferred = rec ? (normalizeDeviceId(rec.deviceId) ?? undefined) : undefined;
         try {
           const dev = await browser.resolve(host, CHECK_KNOWN_TIMEOUT_MS, preferred);
@@ -314,10 +305,19 @@ class Fp2UiServer extends HomebridgePluginUiServer {
 
     const shaped = this.shapeForUi(found);
     const { devices } = this.annotateAgainstStore([...shaped.values()], records);
-    console.error(
-      `[fp2-ui] /check-known done in ${Date.now() - startedAt}ms: ${devices.length}/${targets.length} reachable`
-    );
+    console.error(`[fp2-ui] /check-known done in ${Date.now() - startedAt}ms: ${devices.length}/${targets.length} reachable`);
     return { devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')) };
+  }
+
+  /**
+   * Does a stored pairing record refer to the device a config `host` names?
+   * A config host can be the record's own host/IP, the mDNS instance name, or
+   * (for records written before the store carried `name`) the name derived
+   * from the hardware serial. Shared by /check-known and /forget so both
+   * resolve a config entry to the same record.
+   */
+  recordMatchesHost(rec, host) {
+    return rec.host === host || rec.name === host || this.nameFromSerial(rec.serial) === host;
   }
 
   /**
@@ -357,7 +357,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       keys.add(configHost);
       try {
         for (const rec of await store.listAll()) {
-          if (rec.host === configHost) keys.add(store.keyFor(rec));
+          if (this.recordMatchesHost(rec, configHost)) keys.add(store.keyFor(rec));
         }
       } catch {
         /* store unreadable — fall through with whatever keys we have */
@@ -434,17 +434,13 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     if (typeof pin !== 'string') {
       throw new RequestError('pin must be a string');
     }
-    const digits = pin.replace(/\D/g, '');
-    if (digits.length !== 8) {
+    const result = normalizePin(pin);
+    if (!result.ok) {
       throw new RequestError(
-        `Setup code must contain exactly 8 digits — got ${digits.length}. ` + 'It usually looks like "1234-5678" on the sticker.'
+        `Setup code must contain exactly 8 digits — got ${result.digitCount}. ` + 'It usually looks like "1234-5678" on the sticker.'
       );
     }
-    return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5, 8)}`;
-  }
-
-  async handleNormalizePin({ pin } = {}) {
-    return { pin: this.normalizePin(pin) };
+    return result.pin;
   }
 
   /**
@@ -552,9 +548,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       // id: the cache keys on the mDNS colon form, while AccessoryPairingID may
       // be hap-controller's hex-ASCII form.
       const wantId = normalizeDeviceId(pairedDeviceId)?.toLowerCase();
-      const cached = [...this.browser().devices.values()].find(
-        d => normalizeDeviceId(d.deviceId)?.toLowerCase() === wantId
-      );
+      const cached = [...this.browser().devices.values()].find(d => normalizeDeviceId(d.deviceId)?.toLowerCase() === wantId);
       await store.save({
         deviceId: pairedDeviceId,
         host: configHost,
@@ -595,7 +589,6 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     }
     return `Pairing failed (${raw}). Check that the FP2 is powered on, reachable, and not already paired with another controller.`;
   }
-
 }
 
 (() => new Fp2UiServer())();

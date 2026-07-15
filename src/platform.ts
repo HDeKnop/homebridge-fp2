@@ -9,6 +9,7 @@ import { sanitizeHapName } from './mappers.js';
 import { PairingStore } from './pairing-store.js';
 import { DEFAULT_POLL_SECONDS, PLATFORM_NAME, PLUGIN_NAME, STORAGE_SUBDIR } from './settings.js';
 import type { Fp2DeviceConfig, Fp2PlatformConfig } from './types.js';
+import { HAP_PIN_REGEX } from './validation.js';
 
 interface ManagedDevice {
   cfg: Fp2DeviceConfig;
@@ -61,7 +62,7 @@ export class FP2Platform implements DynamicPlatformPlugin {
     if (!d.pin) return 'missing pin';
     // Don't echo the pin itself — validation errors end up pasted into
     // public bug reports.
-    if (!/^\d{3}-\d{2}-\d{3}$/.test(d.pin)) return 'pin must be formatted as ###-##-### (8 digits with dashes)';
+    if (!HAP_PIN_REGEX.test(d.pin)) return 'pin must be formatted as ###-##-### (8 digits with dashes)';
     return null;
   }
 

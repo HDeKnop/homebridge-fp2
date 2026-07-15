@@ -1,7 +1,8 @@
 import dnsPacket from 'dns-packet';
 import { describe, expect, it } from 'vitest';
 
-import { parseProbeResponse, pickAddress } from '../src/fp2-browser.js';
+import type { DiscoveredFp2 } from '../src/discovery.js';
+import { Fp2Browser, parseProbeResponse, pickAddress, type ServiceLike } from '../src/fp2-browser.js';
 
 describe('pickAddress', () => {
   it('prefers IPv4 over IPv6', () => {
@@ -86,9 +87,7 @@ describe('parseProbeResponse', () => {
     const buf = dnsPacket.encode({
       type: 'response',
       id: 0,
-      answers: [
-        { name: fqdn, type: 'SRV', ttl: 120, data: { port: 631, target: 'printer.local', priority: 0, weight: 0 } },
-      ],
+      answers: [{ name: fqdn, type: 'SRV', ttl: 120, data: { port: 631, target: 'printer.local', priority: 0, weight: 0 } }],
     });
     expect(parseProbeResponse(buf)).toEqual([]);
   });
@@ -121,9 +120,7 @@ describe('parseProbeResponse', () => {
     const buf = dnsPacket.encode({
       type: 'response',
       id: 0,
-      answers: [
-        { name: fqdn, type: 'SRV', ttl: 120, data: { port: 2, target: host, priority: 0, weight: 0 } },
-      ],
+      answers: [{ name: fqdn, type: 'SRV', ttl: 120, data: { port: 2, target: host, priority: 0, weight: 0 } }],
       additionals: [
         { name: host, type: 'A', ttl: 120, data: '192.168.1.5' },
         { name: host, type: 'AAAA', ttl: 120, data: 'fe80::1' },
@@ -132,5 +129,109 @@ describe('parseProbeResponse', () => {
     const [svc] = parseProbeResponse(buf);
     expect(svc.addresses).toContain('192.168.1.5');
     expect(svc.addresses).toContain('fe80::1');
+  });
+});
+
+describe('Fp2Browser cache bookkeeping', () => {
+  /** Structural view of Fp2Browser's private ingest surface and side maps, so
+   *  the bookkeeping can be exercised without a live mDNS socket (start() is
+   *  never called) and without resorting to `any`. */
+  interface BrowserInternals {
+    ingest(svc: ServiceLike, via?: 'multicast' | 'probe'): void;
+    ingestAqara(svc: ServiceLike): void;
+    handleDown(svc: ServiceLike): void;
+    cache: Map<string, DiscoveredFp2>;
+    probeOnly: Set<string>;
+    serialByHost: Map<string, string>;
+    hostByDeviceId: Map<string, string>;
+  }
+
+  const silentLog = { info() {}, warn() {}, debug() {} };
+
+  function makeBrowser(): BrowserInternals {
+    return new Fp2Browser(silentLog) as unknown as BrowserInternals;
+  }
+
+  const DEVICE_ID = 'EC:35:4A:1F:1B:1F';
+  const HOST = 'presence-sensor-fp2-6a5a.local';
+
+  function hapService(overrides: Partial<ServiceLike> = {}): ServiceLike {
+    return {
+      name: 'Presence-Sensor-FP2-6A5A',
+      host: 'Presence-Sensor-FP2-6A5A.local',
+      port: 57897,
+      addresses: ['192.168.1.116'],
+      txt: { id: DEVICE_ID, md: 'PS-S02D', sf: '1' },
+      ...overrides,
+    };
+  }
+
+  function aqaraService(): ServiceLike {
+    return {
+      name: 'Aqara-FP2-6A5A',
+      host: 'Presence-Sensor-FP2-6A5A.local',
+      port: 80,
+      txt: { serialNumber: '54EF44506A5A' },
+    };
+  }
+
+  it('a goodbye announcement clears the cache and every side record', () => {
+    const b = makeBrowser();
+    b.ingest(hapService(), 'probe');
+    b.ingestAqara(aqaraService());
+    expect(b.cache.has(DEVICE_ID)).toBe(true);
+    expect(b.probeOnly.has(DEVICE_ID)).toBe(true);
+    expect(b.hostByDeviceId.get(DEVICE_ID)).toBe(HOST);
+    expect(b.serialByHost.get(HOST)).toBe('54EF44506A5A');
+
+    b.handleDown(hapService());
+
+    expect(b.cache.size).toBe(0);
+    expect(b.probeOnly.size).toBe(0);
+    expect(b.hostByDeviceId.size).toBe(0);
+    expect(b.serialByHost.size).toBe(0);
+  });
+
+  it('a goodbye keeps a serial another live device still resolves through', () => {
+    const b = makeBrowser();
+    b.ingest(hapService());
+    // Second device sharing the same hostname (contrived, but the guard exists).
+    b.ingest(hapService({ txt: { id: 'AA:BB:CC:DD:EE:FF', md: 'PS-S02D', sf: '0' } }));
+    b.ingestAqara(aqaraService());
+
+    b.handleDown(hapService());
+
+    expect(b.cache.has('AA:BB:CC:DD:EE:FF')).toBe(true);
+    expect(b.serialByHost.get(HOST)).toBe('54EF44506A5A');
+  });
+
+  it('a goodbye for an unknown device changes nothing', () => {
+    const b = makeBrowser();
+    b.ingest(hapService());
+    b.handleDown(hapService({ txt: { id: 'not-cached', md: 'PS-S02D' } }));
+    expect(b.cache.has(DEVICE_ID)).toBe(true);
+    expect(b.hostByDeviceId.has(DEVICE_ID)).toBe(true);
+  });
+
+  it('probe→multicast→aqara interleave preserves the serial and clears probeOnly', () => {
+    const b = makeBrowser();
+    b.ingest(hapService(), 'probe');
+    expect(b.probeOnly.has(DEVICE_ID)).toBe(true);
+
+    b.ingestAqara(aqaraService());
+    expect(b.cache.get(DEVICE_ID)?.serial).toBe('54EF44506A5A');
+
+    // The multicast copy of the same announcement must not drop the serial.
+    b.ingest(hapService(), 'multicast');
+    expect(b.probeOnly.has(DEVICE_ID)).toBe(false);
+    expect(b.cache.get(DEVICE_ID)?.serial).toBe('54EF44506A5A');
+  });
+
+  it('aqara record arriving after the HAP record back-fills the serial', () => {
+    const b = makeBrowser();
+    b.ingest(hapService());
+    expect(b.cache.get(DEVICE_ID)?.serial).toBeUndefined();
+    b.ingestAqara(aqaraService());
+    expect(b.cache.get(DEVICE_ID)?.serial).toBe('54EF44506A5A');
   });
 });

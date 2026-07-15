@@ -14,14 +14,20 @@
 const PLATFORM_NAME = 'AqaraFP2';
 const STEP_ORDER = ['discover', 'pin', 'name', 'services', 'confirm'];
 
+/* Client-side timeouts. This file cannot import the plugin's compiled
+ * settings (it's a plain script served from public/), so these are named
+ * here instead of inline where they're used. */
+const DISCOVER_TIMEOUT_MS = 30_000; // full /discover round-trip, incl. UI-server startup slack
+const CHECK_TIMEOUT_MS = 20_000;    // /check-known round-trip
+const PING_TIMEOUT_MS = 3_000;      // liveness probe when a scan times out
+const REMOVE_DISARM_MS = 5_000;     // armed "Remove device" button re-disarms after this
+
 const state = {
   mode: 'pair',         // 'pair' (new device) | 'configure' (already paired by us)
   selectedDevice: null, // discovered service or {manual: true}
   matchedConfigHost: null, // existing config `host` to edit in place (configure mode)
   pin: null,            // canonical HAP form
   name: null,
-  deviceId: null,
-  port: null,
   services: null,       // { zones: [{name, slug}], light: {present} } or null (no live pairing)
   options: { exposeZones: true, exposeLightSensor: true },
   names: { main: null, light: null, zones: {} }, // custom name overrides
@@ -302,27 +308,36 @@ function showScanPrompt() {
   emptyEl.hidden = false;
 }
 
+/* A scan timeout has two very different causes; a quick liveness probe tells
+ * them apart so the user gets the remedy that actually applies. `setText`
+ * receives the refined message once the probe settles. */
+function diagnoseTimeout(setText) {
+  withTimeout(homebridge.request('/ping'), PING_TIMEOUT_MS, 'ping')
+    .then(() => {
+      setText(
+        'The scan is responding slowly — this can happen right after a restart while the ' +
+        'system is busy. Wait a moment and Scan again.'
+      );
+    })
+    .catch(() => {
+      setText(
+        'The setup window has lost its connection to the server (this can happen after a ' +
+        'Homebridge restart). Close this settings window and open it again.'
+      );
+    });
+}
+
+function scanFailureMessage(err) {
+  return err?.message ?? 'Could not run mDNS discovery on the host.';
+}
+
 function showScanError(err) {
   const el = $('#discover-error');
   el.textContent = err?.timedOut
     ? 'Scan timed out — the setup server may still be starting up after a restart. Wait a moment and scan again.'
-    : `Discovery failed: ${err?.message ?? 'Could not run mDNS discovery on the host.'}`;
+    : `Discovery failed: ${scanFailureMessage(err)}`;
   el.hidden = false;
-  // A 30s timeout has two very different causes; a quick liveness probe can
-  // tell them apart and give the user the remedy that actually applies.
-  if (err?.timedOut) {
-    withTimeout(homebridge.request('/ping'), 3_000, 'ping')
-      .then(() => {
-        el.textContent =
-          'The scan is responding slowly — this can happen right after a restart while the ' +
-          'system is busy. Wait a moment and Scan again.';
-      })
-      .catch(() => {
-        el.textContent =
-          'The setup window has lost its connection to the server (this can happen after a ' +
-          'Homebridge restart). Close this settings window and open it again.';
-      });
-  }
+  if (err?.timedOut) diagnoseTimeout((text) => { el.textContent = text; });
 }
 
 let emptyDefaults = null;
@@ -335,20 +350,8 @@ function showEmptyState(err) {
     h3.textContent = err.timedOut ? 'Scan timed out' : 'Discovery failed';
     p.textContent = err.timedOut
       ? 'The setup server may still be starting up after a restart. Wait a moment and scan again.'
-      : (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
-    if (err.timedOut) {
-      withTimeout(homebridge.request('/ping'), 3_000, 'ping')
-        .then(() => {
-          p.textContent =
-            'The scan is responding slowly — this can happen right after a restart while the ' +
-            'system is busy. Wait a moment and Scan again.';
-        })
-        .catch(() => {
-          p.textContent =
-            'The setup window has lost its connection to the server (this can happen after a ' +
-            'Homebridge restart). Close this settings window and open it again.';
-        });
-    }
+      : scanFailureMessage(err);
+    if (err.timedOut) diagnoseTimeout((text) => { p.textContent = text; });
   } else {
     h3.textContent = emptyDefaults.h3;
     p.innerHTML = emptyDefaults.p;
@@ -431,7 +434,7 @@ async function doRefresh(mode, quick = false) {
       // a plain request would then spin forever. Bound it and surface a retry.
       ({ devices, scanWarning } = await withTimeout(
         homebridge.request('/discover', { quick }),
-        30_000,
+        DISCOVER_TIMEOUT_MS,
         'discover'
       ));
       hasScanned = true;
@@ -439,7 +442,7 @@ async function doRefresh(mode, quick = false) {
       const hosts = configured.map((b) => b.host).filter(Boolean);
       ({ devices } = await withTimeout(
         homebridge.request('/check-known', { hosts }),
-        20_000,
+        CHECK_TIMEOUT_MS,
         'discover'
       ));
     }
@@ -555,7 +558,7 @@ async function onDeviceListClick(e) {
           btn.classList.remove('armed');
           btn.textContent = 'Remove device';
         }
-      }, 5000);
+      }, REMOVE_DISARM_MS);
       return;
     }
     btn.disabled = true;
@@ -611,8 +614,6 @@ async function enterConfigure(dev) {
   state.mode = 'configure';
   state.selectedDevice = dev;
   state.matchedConfigHost = block.host ?? configHostFor(dev);
-  state.deviceId = dev.deviceId ?? null;
-  state.port = dev.port ?? null;
   state.pin = block.pin ?? null; // preserved as-is; we don't re-pair
   state.name = block.name ?? suggestDefaultName(dev);
   state.options = {
@@ -637,8 +638,6 @@ async function enterConfigure(dev) {
     });
     homebridge.hideSpinner();
     state.services = { zones: res.zones ?? [], light: res.light ?? { present: false } };
-    if (res.deviceId) state.deviceId = res.deviceId;
-    if (res.port) state.port = res.port;
     $('#opt-zones').checked = state.options.exposeZones;
     $('#opt-lux').checked = state.options.exposeLightSensor;
     renderServices();
@@ -693,8 +692,6 @@ async function submitPin() {
 
     state.pin = res.pin;
     if (res.paired) {
-      state.deviceId = res.deviceId ?? null;
-      state.port = res.port ?? null;
       state.services = { zones: res.zones ?? [], light: res.light ?? { present: false } };
     } else {
       // Couldn't pair live (e.g. manual host not on the network). Fall back to
@@ -738,7 +735,9 @@ function submitName() {
   show('services');
 }
 
-/* Mirror the plugin's sanitizeHapName acceptance so users see the same rules. */
+/* Mirror of the plugin's HAP name rule so users see the same validation.
+ * Source of truth: src/validation.ts (this file can't import it — it is served
+ * as a plain script). test/validation.test.ts fails if the copies drift. */
 function isValidHapName(raw) {
   return (
     /^[a-zA-Z0-9 '][a-zA-Z0-9 ']{0,38}[a-zA-Z0-9']$/.test(raw) ||
@@ -838,20 +837,25 @@ function submitServices() {
 /* Read and validate the per-service name inputs. Returns {value} or {error}. */
 function collectServiceNames() {
   const result = { main: null, light: null, zones: {} };
+  // A non-empty invalid name yields the error message; empty means "use default".
+  const invalid = (raw, label) => (raw && !isValidHapName(raw) ? `${label} is invalid: ${nameRuleHint()}` : null);
 
   const mainRaw = $('#name-main').value.trim();
-  if (mainRaw && !isValidHapName(mainRaw)) return { error: `Main sensor name is invalid: ${nameRuleHint()}` };
+  const mainErr = invalid(mainRaw, 'Main sensor name');
+  if (mainErr) return { error: mainErr };
   result.main = mainRaw || null;
 
   for (const inp of $$('.zone-name-input')) {
     const raw = inp.value.trim();
-    if (raw && !isValidHapName(raw)) return { error: `Zone name "${raw}" is invalid: ${nameRuleHint()}` };
+    const zoneErr = invalid(raw, `Zone name "${raw}"`);
+    if (zoneErr) return { error: zoneErr };
     if (raw) result.zones[inp.dataset.zoneName] = raw;
   }
 
   if (state.services.light?.present) {
     const lightRaw = $('#name-light').value.trim();
-    if (lightRaw && !isValidHapName(lightRaw)) return { error: `Light sensor name is invalid: ${nameRuleHint()}` };
+    const lightErr = invalid(lightRaw, 'Light sensor name');
+    if (lightErr) return { error: lightErr };
     result.light = lightRaw || null;
   }
 
@@ -894,11 +898,12 @@ function buildDeviceBlock() {
   return block;
 }
 
-async function renderConfirm() {
-  const block = buildDeviceBlock();
-  $('#config-preview').textContent = JSON.stringify(block, null, 2);
-
-  // Keep the host-level in-memory config current so a save is always safe.
+/* Merge a device block into the parent frame's in-memory plugin config.
+ * An existing entry for the same host is edited in place (re-running the
+ * wizard is "edit", not "add"); otherwise the block is appended. The single
+ * code path for both the confirm-step preview and the final save. Does NOT
+ * call savePluginConfig() — the caller decides when to persist. */
+async function upsertDeviceBlock(block) {
   const all = await homebridge.getPluginConfig();
   let platform = (all ?? []).find((p) => p.platform === PLATFORM_NAME);
   if (!platform) {
@@ -913,6 +918,13 @@ async function renderConfirm() {
     platform.devices.push(block);
   }
   await homebridge.updatePluginConfig(all);
+}
+
+async function renderConfirm() {
+  const block = buildDeviceBlock();
+  $('#config-preview').textContent = JSON.stringify(block, null, 2);
+  // Keep the host-level in-memory config current so a save is always safe.
+  await upsertDeviceBlock(block);
 }
 
 /* Fully remove a device: its stored pairing, its config.json entry, and (by way
@@ -946,25 +958,7 @@ async function save() {
   const errEl = $('#save-error');
   errEl.hidden = true;
   try {
-    const block = buildDeviceBlock();
-    const all = await homebridge.getPluginConfig();
-    let platform = (all ?? []).find((p) => p.platform === PLATFORM_NAME);
-    if (!platform) {
-      platform = { platform: PLATFORM_NAME, name: PLATFORM_NAME, devices: [] };
-      all.push(platform);
-    }
-    if (!Array.isArray(platform.devices)) platform.devices = [];
-
-    // Replace an existing entry that targets the same host (re-running
-    // the wizard for an already-configured device is "edit", not "add").
-    const existingIdx = platform.devices.findIndex((d) => d.host === block.host);
-    if (existingIdx >= 0) {
-      platform.devices[existingIdx] = { ...platform.devices[existingIdx], ...block };
-    } else {
-      platform.devices.push(block);
-    }
-
-    await homebridge.updatePluginConfig(all);
+    await upsertDeviceBlock(buildDeviceBlock());
     await homebridge.savePluginConfig();
     return true;
   } catch (err) {
@@ -1083,8 +1077,6 @@ function resetWizard() {
   state.matchedConfigHost = null;
   state.pin = null;
   state.name = null;
-  state.deviceId = null;
-  state.port = null;
   state.services = null;
   state.options = { exposeZones: true, exposeLightSensor: true };
   state.names = { main: null, light: null, zones: {} };

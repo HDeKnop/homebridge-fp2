@@ -21,7 +21,7 @@ import dgram from 'node:dgram';
 import { isIPv4, isIPv6 } from 'node:net';
 
 import { matchesService, type DiscoveredFp2, type HapServiceUp } from './discovery.js';
-import { DISCOVERY_REQUERY_MS, FP2_MODEL } from './settings.js';
+import { DISCOVERY_REQUERY_MS, FP2_MODEL, SCAN_COLD_MIN_ROUNDS, SCAN_POLL_MS, SCAN_QUIET_ROUNDS } from './settings.js';
 
 // bonjour-service publishes its types via an `export =` namespace, so `Browser`
 // and `Service` aren't directly importable as types. Derive them from the public
@@ -278,20 +278,15 @@ export class Fp2Browser {
     // re-announces; srv-update is how we notice without a rescan.
     this.browser.on('srv-update', onUp);
     this.browser.on('txt-update', onUp);
-    this.browser.on('down', (svc: Service) => {
-      const txt = (svc.txt ?? {}) as Record<string, string>;
-      if (txt.id && this.cache.delete(txt.id)) {
-        this.log.debug(`[discovery] FP2 went away: ${svc.name} (${txt.id})`);
-      }
-    });
+    this.browser.on('down', (svc: Service) => this.handleDown(svc));
 
     // The unicast probe socket. Deliberately NOT bound to :5353 and NOT a
     // group member — replies come back unicast to its ephemeral port, so they
     // arrive even when the network never forwards group traffic to this host.
     try {
       const probe = dgram.createSocket('udp4');
-      probe.on('error', (err) => this.log.debug(`[discovery] probe socket error: ${err.message}`));
-      probe.on('message', (msg) => {
+      probe.on('error', err => this.log.debug(`[discovery] probe socket error: ${err.message}`));
+      probe.on('message', msg => {
         for (const rec of parseProbeResponse(msg)) {
           if (rec.type === 'aqara') this.ingestAqara(rec);
           else this.ingest(rec, 'probe');
@@ -344,7 +339,7 @@ export class Fp2Browser {
       this.log.debug(`[discovery] probe encode failed: ${(err as Error).message}`);
       return;
     }
-    this.probe.send(query, 5353, '224.0.0.251', (err) => {
+    this.probe.send(query, 5353, '224.0.0.251', err => {
       if (err) this.log.debug(`[discovery] probe send failed: ${err.message}`);
     });
   }
@@ -383,6 +378,32 @@ export class Fp2Browser {
     this.probeOnly.clear();
   }
 
+  /** A goodbye announcement: drop the device and everything we tracked for it. */
+  private handleDown(svc: ServiceLike): void {
+    const txt = (svc.txt ?? {}) as Record<string, string>;
+    if (txt.id && this.cache.delete(txt.id)) {
+      this.forgetSideRecords(txt.id);
+      this.log.debug(`[discovery] FP2 went away: ${svc.name} (${txt.id})`);
+    }
+  }
+
+  /** Drop the per-device side records that ingest()/ingestAqara() built up.
+   *  Without this a long-lived browser (the Config UI server keeps one for its
+   *  whole process lifetime) slowly accumulates entries for devices that have
+   *  gone away or changed hostname. */
+  private forgetSideRecords(deviceId: string): void {
+    this.probeOnly.delete(deviceId);
+    const host = this.hostByDeviceId.get(deviceId);
+    this.hostByDeviceId.delete(deviceId);
+    if (!host) return;
+    // Only drop the serial if no other live device still resolves to this
+    // hostname (in practice one device per host, but the guard is cheap).
+    for (const otherHost of this.hostByDeviceId.values()) {
+      if (otherHost === host) return;
+    }
+    this.serialByHost.delete(host);
+  }
+
   /** Shared by the bonjour `_Aqara-FP2._tcp` browser and the unicast probe:
    *  the record carries the hardware serial (no HAP id/port), joined to the
    *  HAP record via the shared `.local` hostname. */
@@ -417,7 +438,7 @@ export class Fp2Browser {
     if (!prev) {
       this.log.debug(`[discovery] FP2 ${svc.name} id=${hap.id} at ${hap.address}:${hap.port} sf=${hap.sf} via ${via}`);
     } else if (prev.address !== hap.address || prev.port !== hap.port) {
-      this.log.info(`[discovery] FP2 ${svc.name} moved: ${prev.address}:${prev.port} → ${hap.address}:${hap.port}`);
+      this.log.info(`[discovery] FP2 ${svc.name} moved: ${prev.address}:${prev.port} → ${hap.address}:${hap.port} via ${via}`);
     }
     for (const waiter of [...this.waiters]) waiter(hap);
   }
@@ -434,15 +455,14 @@ export class Fp2Browser {
       throw new Error('Fp2Browser has been stopped; construct a new one to scan again');
     }
     this.start();
+    // Duplicates start()'s probe only on a cold start; on a warm browser
+    // start() early-returns and this is the sole immediate probe for the scan.
     this.sendProbe();
     const started = Date.now();
     const deadline = started + timeoutMs;
-    // On a cold cache, don't trust an early quiet spell: the first FP2 can
-    // answer within 200ms while others need a re-query or two (real multicast
-    // loss), and breaking after the first stable window returned inconsistent
-    // partial sets. Hold a cold scan open for at least three re-query rounds;
+    // On a cold cache, don't trust an early quiet spell (see SCAN_COLD_MIN_ROUNDS);
     // a warm cache (browser has been re-querying all along) may exit early.
-    const minElapsed = this.cache.size === 0 ? DISCOVERY_REQUERY_MS * 3 : 0;
+    const minElapsed = this.cache.size === 0 ? DISCOVERY_REQUERY_MS * SCAN_COLD_MIN_ROUNDS : 0;
     let lastCount = -1;
     let stableSince = Date.now();
 
@@ -451,15 +471,11 @@ export class Fp2Browser {
       if (count !== lastCount) {
         lastCount = count;
         stableSince = Date.now();
-      } else if (
-        count > 0 &&
-        Date.now() - stableSince >= DISCOVERY_REQUERY_MS * 2 &&
-        Date.now() - started >= minElapsed
-      ) {
-        // Two full re-query rounds with nothing new — the LAN has gone quiet.
+      } else if (count > 0 && Date.now() - stableSince >= DISCOVERY_REQUERY_MS * SCAN_QUIET_ROUNDS && Date.now() - started >= minElapsed) {
+        // Full re-query rounds with nothing new — the LAN has gone quiet.
         break;
       }
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, SCAN_POLL_MS));
     }
     // Devices only the unicast probe delivered = the network is eating
     // multicast responses (typically IGMP snooping). Say so once per scan —

@@ -42,3 +42,27 @@ export const DISCOVERY_REQUERY_MS = 1_500;
  *  cache almost always, and a cold scan found all devices within ~5s in
  *  testing, so this is a ceiling rather than a duration we expect to spend. */
 export const DISCOVERY_TIMEOUT_MS = 8_000;
+
+/** How often scanAll() re-checks its cache for growth while waiting. Purely a
+ *  polling granularity — results arrive via mDNS events, not this loop. */
+export const SCAN_POLL_MS = 250;
+
+/** A cold scan (empty cache) must stay open for at least this many re-query
+ *  rounds. The first FP2 can answer within 200ms while others need a retry or
+ *  two (real multicast loss); exiting on the first quiet spell returned
+ *  inconsistent partial sets. */
+export const SCAN_COLD_MIN_ROUNDS = 3;
+
+/** scanAll() exits early once the device count has been stable for this many
+ *  full re-query rounds — the LAN has gone quiet. */
+export const SCAN_QUIET_ROUNDS = 2;
+
+/** Extra margin the Config UI server adds on top of a scan timeout before it
+ *  fails the IPC request loudly. scanAll is bounded internally; this is the
+ *  backstop for "the scan never settled at all". */
+export const SCAN_RACE_MARGIN_MS = 5_000;
+
+/** How long /check-known waits for a configured device to answer. Shorter than
+ *  a full scan window: resolve() answers the moment the device replies (the
+ *  unicast probe typically lands within a second), so this is a ceiling. */
+export const CHECK_KNOWN_TIMEOUT_MS = 5_000;
