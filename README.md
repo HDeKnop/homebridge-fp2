@@ -222,7 +222,7 @@ trade-offs.
 
 ## Acknowledgements
 
-The approach of talking directly to the FP2 over HAP-over-IP — including the relevant characteristic UUIDs and the pair-method selection based on the FP2's mDNS feature flags — was informed by [ebaauw/fp2-proxy](https://github.com/ebaauw/fp2-proxy) by Erik Baauw. That project proxies the FP2 to a deCONZ gateway and has no code overlap with this plugin, but its exploration of the FP2's HAP structure was a valuable reference.
+Inspired by early efforts byt Erik Baauw [ebaauw/fp2-proxy](https://github.com/ebaauw/fp2-proxy) by Erik Baauw. That project proxies the FP2 to a deCONZ gateway. This simply is a crude tool to get it into homebridge.
 
 ## License
 
