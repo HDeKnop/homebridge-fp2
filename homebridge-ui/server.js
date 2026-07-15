@@ -32,6 +32,11 @@ import { PairingStore } from '../dist/pairing-store.js';
 import { normalizeDeviceId } from '../dist/mappers.js';
 import { DISCOVERY_TIMEOUT_MS, STORAGE_SUBDIR } from '../dist/settings.js';
 
+/** How long /check-known waits for a configured device to answer. Shorter than
+ *  a full scan window: resolve() answers the moment the device replies (the
+ *  unicast probe typically lands within a second), so this is a ceiling. */
+const CHECK_KNOWN_TIMEOUT_MS = 5_000;
+
 class Fp2UiServer extends HomebridgePluginUiServer {
   constructor() {
     super();
@@ -44,6 +49,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/inspect', this.handleInspect.bind(this));
+    this.onRequest('/check-known', this.handleCheckKnown.bind(this));
     // Liveness probe: lets the wizard tell "scan is slow" apart from "this
     // settings session has lost its channel to the server entirely".
     this.onRequest('/ping', async () => ({ pong: true }));
@@ -167,57 +173,8 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       scanWarning = err?.message ?? String(err);
     }
 
-    // Index our stored pairings by both keys we might match on: the HAP deviceId
-    // (proves this exact pairing is still valid) and the hardware serial (proves
-    // it is the same physical device, even after a factory reset changed its
-    // HAP id — which is exactly what makes a pairing go stale).
-    let records = [];
-    try {
-      records = await this.pairingStore().listAll();
-    } catch {
-      /* store unreadable — treat everything as not-known-by-us */
-    }
-    const byDeviceId = new Map();
-    const bySerial = new Map();
-    for (const rec of records) {
-      const id = normalizeDeviceId(rec.deviceId)?.toLowerCase();
-      if (id) byDeviceId.set(id, rec);
-      const serial = rec.serial?.trim().toLowerCase();
-      if (serial) bySerial.set(serial, rec);
-    }
-
-    // Pairing records consumed by a live-scan device; whatever remains is
-    // appended afterwards as a store-backed entry, so a paired device is in the
-    // result even when the scan missed it entirely.
-    const consumed = new Set();
-
-    const devices = [...fp2s.values()].map(dev => {
-      const id = normalizeDeviceId(dev.deviceId)?.toLowerCase();
-      const serial = dev.serial?.trim().toLowerCase();
-      const matchedById = id ? byDeviceId.get(id) : undefined;
-      // Same hardware, different HAP id => the FP2 was factory-reset and the
-      // stored credential is dead. Legacy records have no serial; fall back to
-      // matching on the host/IP the record was keyed under.
-      const matchedBySerial = serial ? bySerial.get(serial) : undefined;
-      const legacyByHost = !matchedById && !matchedBySerial ? records.find(r => !r.serial && r.host === dev.host) : undefined;
-      const staleRecord = !matchedById ? (matchedBySerial ?? legacyByHost) : undefined;
-
-      const record = matchedById ?? staleRecord;
-      if (record) consumed.add(record);
-      return {
-        ...dev,
-        knownByUs: matchedById !== undefined,
-        storedHost: record?.host ?? null,
-        /** True when we hold a pairing for this hardware that can never work
-         *  again — the device was reset. The UI offers "Forget pairing". */
-        stalePairing: staleRecord !== undefined,
-        /** The store key to pass to /forget — for ANY pairing we hold (stale or
-         *  valid), since "Remove device" has to delete a working device's pairing
-         *  too. Null when we hold no pairing at all. */
-        pairingKey: record ? (record.serial?.trim() || record.host) : null,
-        staleDeviceId: staleRecord ? (normalizeDeviceId(staleRecord.deviceId) ?? null) : null,
-      };
-    });
+    const records = await this.listPairings();
+    const { devices, consumed } = this.annotateAgainstStore([...fp2s.values()], records);
 
     // Store-backed entries: pairings the scan didn't surface this round. The
     // record's host/port were refreshed on the runtime's last successful
@@ -256,6 +213,111 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
       scanWarning,
     };
+  }
+
+  /** All stored pairings, or [] when the store is unreadable. */
+  async listPairings() {
+    try {
+      return await this.pairingStore().listAll();
+    } catch {
+      /* store unreadable — treat everything as not-known-by-us */
+      return [];
+    }
+  }
+
+  /**
+   * Annotate live devices against the stored pairings. Shared by /discover and
+   * /check-known so both report identical pairing state.
+   *
+   * Index by both keys we might match on: the HAP deviceId (proves this exact
+   * pairing is still valid) and the hardware serial (proves it is the same
+   * physical device, even after a factory reset changed its HAP id — which is
+   * exactly what makes a pairing go stale).
+   */
+  annotateAgainstStore(liveDevices, records) {
+    const byDeviceId = new Map();
+    const bySerial = new Map();
+    for (const rec of records) {
+      const id = normalizeDeviceId(rec.deviceId)?.toLowerCase();
+      if (id) byDeviceId.set(id, rec);
+      const serial = rec.serial?.trim().toLowerCase();
+      if (serial) bySerial.set(serial, rec);
+    }
+
+    // Pairing records consumed by a live device; /discover appends whatever
+    // remains as store-backed entries, so a paired device is in the result
+    // even when the scan missed it entirely.
+    const consumed = new Set();
+
+    const devices = liveDevices.map(dev => {
+      const id = normalizeDeviceId(dev.deviceId)?.toLowerCase();
+      const serial = dev.serial?.trim().toLowerCase();
+      const matchedById = id ? byDeviceId.get(id) : undefined;
+      // Same hardware, different HAP id => the FP2 was factory-reset and the
+      // stored credential is dead. Legacy records have no serial; fall back to
+      // matching on the host/IP the record was keyed under.
+      const matchedBySerial = serial ? bySerial.get(serial) : undefined;
+      const legacyByHost = !matchedById && !matchedBySerial ? records.find(r => !r.serial && r.host === dev.host) : undefined;
+      const staleRecord = !matchedById ? (matchedBySerial ?? legacyByHost) : undefined;
+
+      const record = matchedById ?? staleRecord;
+      if (record) consumed.add(record);
+      return {
+        ...dev,
+        knownByUs: matchedById !== undefined,
+        storedHost: record?.host ?? null,
+        /** True when we hold a pairing for this hardware that can never work
+         *  again — the device was reset. The UI offers "Forget pairing". */
+        stalePairing: staleRecord !== undefined,
+        /** The store key to pass to /forget — for ANY pairing we hold (stale or
+         *  valid), since "Remove device" has to delete a working device's pairing
+         *  too. Null when we hold no pairing at all. */
+        pairingKey: record ? (record.serial?.trim() || record.host) : null,
+        staleDeviceId: staleRecord ? (normalizeDeviceId(staleRecord.deviceId) ?? null) : null,
+      };
+    });
+
+    return { devices, consumed };
+  }
+
+  /**
+   * Reachability check for the devices already in config — the wizard calls
+   * this when it opens, instead of a full network scan. Each host is resolved
+   * individually (browser cache + unicast probe + multicast), so this answers
+   * as soon as the devices have replied rather than waiting out a scan window.
+   * Devices that don't answer are simply absent from the result; the wizard
+   * shows them as "not reachable right now".
+   */
+  async handleCheckKnown({ hosts = [] } = {}) {
+    const startedAt = Date.now();
+    const targets = [...new Set(hosts.filter(h => typeof h === 'string' && h.trim()))];
+    const records = await this.listPairings();
+
+    const browser = this.browser();
+    const found = new Map();
+    await Promise.all(
+      targets.map(async host => {
+        // Prefer the stored pairing's deviceId so the check follows the FP2
+        // across a DHCP address change, exactly like the runtime does.
+        const rec = records.find(
+          r => r.host === host || r.name === host || this.nameFromSerial(r.serial) === host
+        );
+        const preferred = rec ? (normalizeDeviceId(rec.deviceId) ?? undefined) : undefined;
+        try {
+          const dev = await browser.resolve(host, CHECK_KNOWN_TIMEOUT_MS, preferred);
+          if (dev) found.set(dev.deviceId, dev);
+        } catch {
+          /* per-host failure = unreachable; the wizard renders that state */
+        }
+      })
+    );
+
+    const shaped = this.shapeForUi(found);
+    const { devices } = this.annotateAgainstStore([...shaped.values()], records);
+    console.error(
+      `[fp2-ui] /check-known done in ${Date.now() - startedAt}ms: ${devices.length}/${targets.length} reachable`
+    );
+    return { devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')) };
   }
 
   /**

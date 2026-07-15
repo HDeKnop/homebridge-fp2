@@ -17,10 +17,11 @@
 
   <!-- Step 1: Discover -->
   <section class="step" data-step="discover" hidden>
-    <h2>Find your FP2</h2>
+    <h2>Your FP2 devices</h2>
     <p class="muted">
-      Scanning your local network for Aqara Presence Sensor FP2 devices.
-      The FP2 needs to be on the same Wi-Fi network as Homebridge.
+      Your configured devices are shown below with their current reachability.
+      Press <strong>Scan network</strong> to search for new FP2 sensors &mdash;
+      they need to be on the same Wi-Fi network as Homebridge.
     </p>
 
     <div id="discover-error" class="banner" hidden></div>
@@ -41,15 +42,15 @@
         <strong>remove it from the Apple Home app</strong> to release
         the HomeKit pairing so this plugin can claim it.
       </p>
-      <button type="button" class="btn" id="rescan-btn">Scan again</button>
+      <button type="button" class="btn" id="rescan-btn">Scan network</button>
     </div>
 
     <div class="actions">
       <button type="button" class="btn ghost" id="manual-entry-btn">
         Enter details manually instead
       </button>
-      <button type="button" class="btn" id="rescan-btn-main">
-        Scan again
+      <button type="button" class="btn primary" id="rescan-btn-main">
+        Scan network
       </button>
     </div>
   </section>

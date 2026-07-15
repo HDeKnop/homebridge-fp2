@@ -100,7 +100,7 @@ function buildConfigVm(block, pending) {
     host: block.host,
     port: null,
     deviceId: null,
-    metaNote: pending ? 'checking network…' : 'not detected right now',
+    metaNote: pending ? 'checking network…' : 'not reachable right now',
     pairingKey: null,
     staleDeviceId: null,
     configHost: block.host,
@@ -208,7 +208,7 @@ function renderDeviceCard(vm) {
          expose it to HomeKit.</p>`;
   } else if (vm.category === 'configured-offline') {
     body = `
-      <p class="device-note">Didn't answer the scan just now.</p>
+      <p class="device-note">Didn't respond just now.</p>
       <details class="device-help">
         <summary>Is that a problem?</summary>
         <p>It's in your config but didn't respond — it may be slow to announce
@@ -278,15 +278,28 @@ function renderList() {
   listEl.hidden = currentVms.size === 0;
 }
 
-function setScanning(on) {
+function setScanning(on, mode = 'scan') {
   const statusEl = $('#discover-status');
   if (on) {
     const empty = currentVms.size === 0;
     statusEl.classList.toggle('boxed', empty);
-    statusEl.querySelector('.status-text').textContent = empty ? 'Scanning…' : 'Scanning for more…';
+    statusEl.querySelector('.status-text').textContent =
+      mode === 'check' ? 'Checking your devices…' : empty ? 'Scanning network…' : 'Scanning network for more…';
     $('#no-devices').hidden = true;
   }
   statusEl.hidden = !on;
+}
+
+/* Shown instead of a scan result when nothing is configured and the user
+ * hasn't asked for a scan — the wizard doesn't enumerate the network unbidden. */
+function showScanPrompt() {
+  const emptyEl = $('#no-devices');
+  const h3 = emptyEl.querySelector('h3');
+  const p = emptyEl.querySelector('p');
+  if (!emptyDefaults) emptyDefaults = { h3: h3.textContent, p: p.innerHTML };
+  h3.textContent = 'No devices configured yet';
+  p.textContent = 'Press Scan network to look for Aqara FP2 sensors on your network.';
+  emptyEl.hidden = false;
 }
 
 function showScanError(err) {
@@ -350,18 +363,40 @@ function showEmptyState(err) {
  * concurrent callers simply share the in-flight scan. */
 let discoverInFlight = null;
 
+/* Whether the user has run a full network scan in this session. Opening the
+ * wizard only CHECKS the configured devices; enumerating everything on the LAN
+ * is an explicit action ("Scan network"). Refreshes after a mutation stay in
+ * whichever mode the user is in. */
+let hasScanned = false;
+
 /* `quick` serves from the UI server's warm browser cache instead of running a new
  * multicast sweep — used when returning to the list after pairing, where nothing
  * on the network has changed and we only need the pairing state re-read. */
 async function runDiscover(quick = false) {
   if (discoverInFlight) return discoverInFlight;
-  discoverInFlight = doDiscover(quick === true).finally(() => {
+  discoverInFlight = doRefresh('scan', quick === true).finally(() => {
     discoverInFlight = null;
   });
   return discoverInFlight;
 }
 
-async function doDiscover(quick = false) {
+/* Reachability check of the configured devices only — what the wizard does on
+ * open. No device enumeration: new FP2s only appear after "Scan network". */
+async function runCheck() {
+  if (discoverInFlight) return discoverInFlight;
+  discoverInFlight = doRefresh('check').finally(() => {
+    discoverInFlight = null;
+  });
+  return discoverInFlight;
+}
+
+/* Re-sync the list after a mutation (remove/forget/save), staying in the mode
+ * the user is in: full scan results if they scanned, config-check otherwise. */
+function refreshList() {
+  return hasScanned ? runDiscover(true) : runCheck();
+}
+
+async function doRefresh(mode, quick = false) {
   $('#discover-error').hidden = true;
   $('#no-devices').hidden = true;
 
@@ -378,17 +413,36 @@ async function doDiscover(quick = false) {
       })
   );
   renderList();
-  setScanning(true);
 
-  // PHASE 2 — reconcile with the live scan.
+  // Nothing configured and no scan requested: don't touch the network at all —
+  // just invite the user to.
+  if (mode === 'check' && currentVms.size === 0) {
+    showScanPrompt();
+    return;
+  }
+  setScanning(true, mode);
+
+  // PHASE 2 — reconcile with the network.
   try {
-    // The UI server can take a moment to come up right after a bridge restart;
-    // a plain request would then spin forever. Bound it and surface a retry.
-    const { devices, scanWarning } = await withTimeout(
-      homebridge.request('/discover', { quick }),
-      30_000,
-      'discover'
-    );
+    let devices;
+    let scanWarning = null;
+    if (mode === 'scan') {
+      // The UI server can take a moment to come up right after a bridge restart;
+      // a plain request would then spin forever. Bound it and surface a retry.
+      ({ devices, scanWarning } = await withTimeout(
+        homebridge.request('/discover', { quick }),
+        30_000,
+        'discover'
+      ));
+      hasScanned = true;
+    } else {
+      const hosts = configured.map((b) => b.host).filter(Boolean);
+      ({ devices } = await withTimeout(
+        homebridge.request('/check-known', { hosts }),
+        20_000,
+        'discover'
+      ));
+    }
     // The server answers with its store-backed devices even when the mDNS
     // sweep itself failed — surface that as a warning, not an error state.
     if (scanWarning) {
@@ -408,9 +462,9 @@ async function doDiscover(quick = false) {
       liveKeys.add(key);
       currentVms.set(key, buildLiveVm(dev, block, key));
     }
-    // Configured FP2s the scan missed stay listed (a briefly-offline or
+    // Configured FP2s that didn't answer stay listed (a briefly-offline or
     // slow-to-announce device must never silently disappear from setup) —
-    // they just degrade from "checking network…" to "not detected right now".
+    // they just degrade from "checking network…" to "not reachable right now".
     for (const [key, vm] of currentVms) {
       if (vm.category === 'configured-pending') {
         currentVms.set(key, buildConfigVm(vm.block, /* pending */ false));
@@ -418,7 +472,10 @@ async function doDiscover(quick = false) {
     }
 
     renderList();
-    if (currentVms.size === 0) showEmptyState(null);
+    if (currentVms.size === 0) {
+      if (mode === 'scan') showEmptyState(null);
+      else showScanPrompt();
+    }
   } catch (err) {
     // Non-destructive: the phase-1 cards stay on screen. Only fall back to the
     // full empty-state panel when there was nothing to show in the first place.
@@ -482,17 +539,34 @@ async function onDeviceListClick(e) {
     if (!configHost) return;
     // Destructive and not undoable from here: it drops the pairing, the config
     // entry, and (on restart) the HomeKit accessory along with its room and any
-    // automations referencing it. Confirm first.
-    if (!window.confirm(`Remove "${configHost}" from this plugin?\n\nThis deletes its pairing and its config entry. Its HomeKit accessory (and any automations using it) will be removed when Homebridge restarts.`)) {
+    // automations referencing it. Confirm first — via a two-step armed button:
+    // native window.confirm() is silently blocked inside the Config UI X
+    // sandboxed iframe (it returns false with no dialog), which made this
+    // button appear to do nothing.
+    if (btn.dataset.armed !== 'true') {
+      btn.dataset.armed = 'true';
+      btn.classList.add('armed');
+      btn.textContent = 'Click again to remove';
+      setTimeout(() => {
+        // Disarm if still on screen and untouched (a re-render replaces the
+        // node, which disarms it naturally).
+        if (btn.isConnected && btn.dataset.armed === 'true') {
+          btn.dataset.armed = '';
+          btn.classList.remove('armed');
+          btn.textContent = 'Remove device';
+        }
+      }, 5000);
       return;
     }
     btn.disabled = true;
     btn.textContent = 'Removing…';
     try {
       await removeDevice({ configHost, pairingKey: vm.pairingKey || null });
-      await runDiscover();
+      await refreshList();
     } catch (err) {
       btn.disabled = false;
+      btn.dataset.armed = '';
+      btn.classList.remove('armed');
       btn.textContent = 'Remove device';
       homebridge.toast.error(err?.message ?? String(err), 'Could not remove device');
     }
@@ -505,9 +579,9 @@ async function onDeviceListClick(e) {
     btn.textContent = 'Removing…';
     try {
       await homebridge.request('/forget', { key: vm.pairingKey });
-      // Re-scan so the device drops out of "stale" and back into
+      // Refresh so the device drops out of "stale" and back into
       // "available" — i.e. ready to pair again.
-      await runDiscover();
+      await refreshList();
     } catch (err) {
       btn.disabled = false;
       btn.textContent = 'Forget pairing';
@@ -1022,9 +1096,9 @@ function resetWizard() {
   $('#opt-zones').checked = true;
   $('#opt-lux').checked = true;
   show('discover');
-  // Quick: we already know what's on the network — the only thing that changed is
-  // that the FP2 we just paired is now configured. No need to re-sweep the LAN.
-  runDiscover(true);
+  // Stay in the user's mode: after a scan-driven pairing this re-reads pairing
+  // state from the warm cache; before any scan it just re-checks the config.
+  refreshList();
 }
 
 function init() {
@@ -1076,7 +1150,9 @@ function init() {
 
   homebridge.disableSaveButton();
   show('discover');
-  runDiscover();
+  // On open: render config + check that those devices are reachable. The full
+  // network scan only runs when the user presses "Scan network".
+  runCheck();
 }
 
 if (window.homebridge) {

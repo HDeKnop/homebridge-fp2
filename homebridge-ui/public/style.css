@@ -286,6 +286,12 @@ code, .mono {
   cursor: default;
   pointer-events: none;
 }
+/* Two-step confirm state: first click arms, second click removes. */
+.btn.danger.armed {
+  background: var(--error);
+  color: #ffffff;
+  border-color: var(--error);
+}
 
 /* Device list (step 1) */
 .scan-inline {
