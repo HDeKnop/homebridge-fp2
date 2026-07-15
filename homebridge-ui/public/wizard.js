@@ -76,38 +76,242 @@ function matchConfigBlock(dev, configured) {
   return configured.find((b) => b.host && candidates.includes(b.host.toLowerCase())) ?? null;
 }
 
-/* A configured FP2 the live scan didn't surface this round. Rendered so it's
- * always reachable for reconfiguration; Configure still requires it to be
- * online (the pairing read goes over the network). */
-function renderOfflineDevice(block) {
+/* ─── Step 1: Discover ─────────────────────────────────────────────── */
+
+/* The device list renders from a single view-model map — never by appending
+ * during async work — so overlapping refreshes can't produce duplicate rows.
+ * Keys are stable across the two render phases: anything with a config entry
+ * keys on its config host, so the live-scan card REPLACES the instant
+ * config-only card in place. */
+let currentVms = new Map(); // key -> vm
+
+const cfgKey = (block) => `cfg:${block.host.toLowerCase()}`;
+const devKey = (dev) => `dev:${dev.deviceId}`;
+
+/* A device we only know from config.json. Phase 1 renders these instantly
+ * (pending = the scan is still running); after the scan, any block the scan
+ * didn't surface degrades to "configured-offline" — still listed, still
+ * removable, and Reconfigure will tell the user if it's truly unreachable. */
+function buildConfigVm(block, pending) {
+  return {
+    key: cfgKey(block),
+    category: pending ? 'configured-pending' : 'configured-offline',
+    displayName: block.name ?? block.host,
+    host: block.host,
+    port: null,
+    deviceId: null,
+    metaNote: pending ? 'checking network…' : 'not detected right now',
+    pairingKey: null,
+    staleDeviceId: null,
+    configHost: block.host,
+    dev: null,
+    block,
+  };
+}
+
+function buildLiveVm(dev, block, key) {
+  // Four states, checked in this order:
+  //  - stale: we hold a pairing for this hardware but the FP2 was factory-
+  //    reset, so its HAP id changed and the credential is dead. Must be
+  //    checked BEFORE `claimed`: such a device also reports sf=0, and calling
+  //    it "paired elsewhere" sends the user off to remove it from Apple Home
+  //    when the real fix is to forget the dead pairing here.
+  //  - configured: we hold a VALID pairing (knownByUs). A config entry alone
+  //    is not enough — after "Forget pairing" the entry still exists but the
+  //    credential is gone, and offering "Configure" would just fail with
+  //    "no saved pairing". Such a device has to be paired again, so it falls
+  //    through to claimed/available like any other unpaired FP2.
+  //  - claimed: paired by another controller (sf=0, not ours) — must be freed
+  //    in Apple Home / Aqara first.
+  //  - available: free to pair.
+  // Two independent facts, which the UI used to collapse into one:
+  //   knownByUs — we hold a valid HAP pairing for this device
+  //   block     — it has an entry in config.json
+  // "Paired but not in config" is a real state (it was just paired, or its
+  // config entry was removed) and needs finishing, not the same badge as a
+  // device that is fully configured and running.
+  const category = dev.stalePairing
+    ? 'stale'
+    : dev.knownByUs && block
+      ? 'configured'
+      : dev.knownByUs
+        ? 'needs-config'
+        : !dev.availableToPair
+          ? 'claimed'
+          : 'available';
+  dev._configBlock = block;
+  return {
+    key,
+    category,
+    displayName: block?.name ?? dev.name ?? 'Unknown FP2',
+    host: dev.host,
+    port: dev.port,
+    deviceId: dev.deviceId,
+    metaNote: null,
+    pairingKey: dev.pairingKey ?? null,
+    staleDeviceId: dev.staleDeviceId ?? null,
+    configHost: block?.host ?? null,
+    dev,
+    block,
+  };
+}
+
+const BADGES = {
+  'configured': ['info', 'Configured'],
+  'configured-pending': ['info', 'Configured'],
+  'configured-offline': ['info', 'Configured'],
+  'needs-config': ['info', 'Paired — needs setup'],
+  'available': ['ok', 'Available'],
+  'claimed': ['warn', 'Paired elsewhere'],
+  'stale': ['warn', 'Stale pairing'],
+};
+
+function renderDeviceCard(vm) {
   const li = document.createElement('li');
   li.className = 'device';
+  li.dataset.key = vm.key;
+  li.dataset.category = vm.category;
+
+  const [badgeKind, badgeText] = BADGES[vm.category];
+
+  const metaParts = [escapeHtml(vm.host)];
+  if (vm.port != null) metaParts.push(`port ${vm.port}`);
+  if (vm.deviceId) metaParts.push(`<span class="mono">${escapeHtml(vm.deviceId)}</span>`);
+  if (vm.metaNote) metaParts.push(escapeHtml(vm.metaNote));
+
+  let body = '';
+  if (vm.category === 'stale') {
+    body = `
+      <p class="device-note">The saved pairing no longer works — remove it, then pair again.</p>
+      <details class="device-help">
+        <summary>What happened?</summary>
+        <p>This FP2 was factory-reset since it was paired here, so the saved
+           pairing (HAP id <span class="mono">${escapeHtml(vm.staleDeviceId ?? '?')}</span>) can no
+           longer work — the device now reports
+           <span class="mono">${escapeHtml(vm.deviceId ?? '?')}</span>.
+           Remove the dead pairing, then pair it again.</p>
+      </details>`;
+  } else if (vm.category === 'claimed') {
+    body = `
+      <p class="device-note">Paired with another controller — it has to be released before it can be added here.</p>
+      <details class="device-help">
+        <summary>How do I free it?</summary>
+        <p>Open <strong>Aqara Home</strong> → tap the FP2 → and either
+           use <em>Remove from Home</em>, or factory-reset the device
+           (10-second long-press) before adding it here.</p>
+      </details>`;
+  } else if (vm.category === 'needs-config') {
+    body = `
+      <p class="device-note">Paired, but not in your config yet — finish setting it up to
+         expose it to HomeKit.</p>`;
+  } else if (vm.category === 'configured-offline') {
+    body = `
+      <p class="device-note">Didn't answer the scan just now.</p>
+      <details class="device-help">
+        <summary>Is that a problem?</summary>
+        <p>It's in your config but didn't respond — it may be slow to announce
+           or briefly offline. Reconfiguring still needs it reachable to read
+           its sensors.</p>
+      </details>`;
+  }
+
+  const actions = [];
+  if (vm.category === 'configured') {
+    actions.push(`<button type="button" class="btn device-configure">Reconfigure</button>`);
+  } else if (vm.category === 'needs-config') {
+    actions.push(`<button type="button" class="btn primary device-configure">Finish setting up</button>`);
+  } else if (vm.category === 'available') {
+    actions.push(`<button type="button" class="btn primary device-pick">Use this device</button>`);
+  } else if (vm.category === 'stale') {
+    actions.push(`<button type="button" class="btn danger device-forget">Forget pairing</button>`);
+  } else if (vm.category === 'configured-pending' || vm.category === 'configured-offline') {
+    actions.push(`<button type="button" class="btn device-configure-offline">Reconfigure</button>`);
+  }
+  // "Remove device" is offered whenever this FP2 has a config entry — including
+  // a working one, since removing a device you no longer want is a normal thing
+  // to do. "Forget pairing" only drops the credential so the same sensor can be
+  // re-paired; this removes the device from the plugin entirely.
+  if (vm.configHost) {
+    actions.push(`<button type="button" class="btn danger device-remove">Remove device</button>`);
+  }
+
   li.innerHTML = `
-    <div class="device-row">
+    <div class="device-head">
       <div class="device-main">
-        <div class="device-name">${escapeHtml(block.name ?? block.host)}</div>
-        <div class="device-meta">
-          <span>${escapeHtml(block.host)}</span>
-          <span aria-hidden="true">·</span>
-          <span>not detected right now</span>
-        </div>
+        <div class="device-name">${escapeHtml(vm.displayName)}</div>
+        <div class="device-meta">${metaParts.join('<span aria-hidden="true">·</span>')}</div>
       </div>
-      <span class="badge info">Paired and configured</span>
+      <span class="badge ${badgeKind}">${badgeText}</span>
     </div>
-    <p class="hint">In your config but it didn't answer the scan just now — it may be
-       slow to announce or briefly offline. Reconfiguring still needs it reachable to
-       read its sensors.</p>
-    <button type="button" class="btn device-configure-offline" data-config-host="${escapeHtml(block.host)}">
-      Reconfigure
-    </button>
-    <button type="button" class="btn device-remove" data-config-host="${escapeHtml(block.host)}" data-pairing-key="">
-      Remove device
-    </button>
+    ${body}
+    ${actions.length ? `<div class="device-actions">${actions.join('')}</div>` : ''}
   `;
   return li;
 }
 
-/* ─── Step 1: Discover ─────────────────────────────────────────────── */
+/* Groups render in this order; a header only appears when its group has rows.
+ * "Your devices" comes first — it's the part the user already owns, painted
+ * instantly in phase 1, so the window never opens onto an empty scan. */
+const GROUPS = [
+  { title: 'Your devices', categories: ['configured', 'needs-config', 'configured-pending', 'configured-offline'] },
+  { title: 'Available to add', categories: ['available'] },
+  { title: 'Needs attention', categories: ['stale', 'claimed'] },
+];
+
+/* Full synchronous rebuild from currentVms. Idempotent; the only code path
+ * that touches #device-list children. */
+function renderList() {
+  const listEl = $('#device-list');
+  listEl.innerHTML = '';
+  const vms = [...currentVms.values()];
+  for (const group of GROUPS) {
+    const members = vms.filter((vm) => group.categories.includes(vm.category));
+    if (members.length === 0) continue;
+    const hdr = document.createElement('li');
+    hdr.className = 'device-group-header';
+    hdr.textContent = group.title;
+    listEl.appendChild(hdr);
+    for (const vm of members) listEl.appendChild(renderDeviceCard(vm));
+  }
+  listEl.hidden = currentVms.size === 0;
+}
+
+function setScanning(on) {
+  const statusEl = $('#discover-status');
+  if (on) {
+    const empty = currentVms.size === 0;
+    statusEl.classList.toggle('boxed', empty);
+    statusEl.querySelector('.status-text').textContent = empty ? 'Scanning…' : 'Scanning for more…';
+    $('#no-devices').hidden = true;
+  }
+  statusEl.hidden = !on;
+}
+
+function showScanError(err) {
+  const el = $('#discover-error');
+  el.textContent = err?.timedOut
+    ? 'Scan timed out — the setup server may still be starting up after a restart. Wait a moment and scan again.'
+    : `Discovery failed: ${err?.message ?? 'Could not run mDNS discovery on the host.'}`;
+  el.hidden = false;
+}
+
+let emptyDefaults = null;
+function showEmptyState(err) {
+  const emptyEl = $('#no-devices');
+  const h3 = emptyEl.querySelector('h3');
+  const p = emptyEl.querySelector('p');
+  if (!emptyDefaults) emptyDefaults = { h3: h3.textContent, p: p.innerHTML };
+  if (err) {
+    h3.textContent = err.timedOut ? 'Scan timed out' : 'Discovery failed';
+    p.textContent = err.timedOut
+      ? 'The setup server may still be starting up after a restart. Wait a moment and scan again.'
+      : (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
+  } else {
+    h3.textContent = emptyDefaults.h3;
+    p.innerHTML = emptyDefaults.p;
+  }
+  emptyEl.hidden = false;
+}
 
 /* Guards against overlapping scans. Two runs racing (a rescan click while one is
  * still in flight, or a reset + init firing together) each clear the list and then
@@ -128,257 +332,150 @@ async function runDiscover(quick = false) {
 }
 
 async function doDiscover(quick = false) {
-  const statusEl = $('#discover-status');
-  const listEl = $('#device-list');
-  const emptyEl = $('#no-devices');
+  $('#discover-error').hidden = true;
+  $('#no-devices').hidden = true;
 
-  // Keep whatever is already on screen visible while we refresh. Returning to the
-  // scan after "Save & add another" would otherwise blank the list and show a
-  // spinner, even though we already know what is on the network — the only thing
-  // that actually changed is that the device we just paired is now configured.
-  // (The list is still rebuilt from the scan result below; this only avoids the
-  // flash of an empty list.)
-  const hadContent = listEl.children.length > 0;
-  statusEl.hidden = hadContent;
-  if (!hadContent) {
-    listEl.hidden = true;
-    listEl.innerHTML = '';
-  }
-  emptyEl.hidden = true;
+  // PHASE 1 — instant paint from config. getPluginConfig() is a parent-frame
+  // round-trip, no network: devices already set up appear immediately instead
+  // of the window opening onto a bare "Scanning…" for the length of the sweep.
+  const configured = await loadConfiguredDevices();
+  currentVms = new Map(
+    configured
+      .filter((b) => b.host)
+      .map((b) => {
+        const vm = buildConfigVm(b, /* pending */ true);
+        return [vm.key, vm];
+      })
+  );
+  renderList();
+  setScanning(true);
 
+  // PHASE 2 — reconcile with the live scan.
   try {
     // The UI server can take a moment to come up right after a bridge restart;
     // a plain request would then spin forever. Bound it and surface a retry.
-    const [{ devices }, configured] = await Promise.all([
-      withTimeout(homebridge.request('/discover', { quick }), 30_000, 'discover'),
-      loadConfiguredDevices(),
-    ]);
-    statusEl.hidden = true;
+    const { devices } = await withTimeout(
+      homebridge.request('/discover', { quick }),
+      30_000,
+      'discover'
+    );
 
-    // Clear again now the await has resolved. The clear above happens before the
-    // scan, so on its own it leaves a window in which a second render could append
-    // to an already-populated list — which is what made every device appear twice.
-    listEl.innerHTML = '';
-
-    // Config blocks rendered via a live (discovered) device; the remainder are
-    // appended afterwards as "configured but not detected right now".
-    const matchedBlocks = new Set();
-
+    const liveKeys = new Set();
     for (const dev of devices) {
       const block = matchConfigBlock(dev, configured);
-      if (block) matchedBlocks.add(block);
-      // Four states, checked in this order:
-      //  - stale: we hold a pairing for this hardware but the FP2 was factory-
-      //    reset, so its HAP id changed and the credential is dead. Must be
-      //    checked BEFORE `claimed`: such a device also reports sf=0, and calling
-      //    it "paired elsewhere" sends the user off to remove it from Apple Home
-      //    when the real fix is to forget the dead pairing here.
-      //  - configured: we hold a VALID pairing (knownByUs). A config entry alone
-      //    is not enough — after "Forget pairing" the entry still exists but the
-      //    credential is gone, and offering "Configure" would just fail with
-      //    "no saved pairing". Such a device has to be paired again, so it falls
-      //    through to claimed/available like any other unpaired FP2.
-      //  - claimed: paired by another controller (sf=0, not ours) — must be freed
-      //    in Apple Home / Aqara first.
-      //  - available: free to pair.
-      // Two independent facts, which the UI used to collapse into one:
-      //   knownByUs — we hold a valid HAP pairing for this device
-      //   block     — it has an entry in config.json
-      // "Paired but not in config" is a real state (it was just paired, or its
-      // config entry was removed) and needs finishing, not the same "Set up here"
-      // badge as a device that is fully configured and running.
-      const category = dev.stalePairing
-        ? 'stale'
-        : dev.knownByUs && block
-          ? 'configured' // paired AND in config — fully set up
-          : dev.knownByUs
-            ? 'needs-config' // paired, but no config entry yet — finish setting it up
-            : !dev.availableToPair
-              ? 'claimed'
-              : 'available';
-      dev._configBlock = block;
-      dev._category = category;
-
-      const li = document.createElement('li');
-      li.className = 'device';
-      const badge =
-        category === 'stale'
-          ? '<span class="badge warn">Stale pairing</span>'
-          : category === 'configured'
-            ? '<span class="badge info">Paired and configured</span>'
-            : category === 'needs-config'
-              ? '<span class="badge ok">Paired — needs setup</span>'
-              : category === 'claimed'
-                ? '<span class="badge warn">Paired elsewhere</span>'
-                : '<span class="badge ok">Available</span>';
-      const displayName = block?.name ?? dev.name ?? 'Unknown FP2';
-
-      li.innerHTML = `
-        <div class="device-row">
-          <div class="device-main">
-            <div class="device-name">${escapeHtml(displayName)}</div>
-            <div class="device-meta">
-              <span>${escapeHtml(dev.host)}</span>
-              <span aria-hidden="true">·</span>
-              <span>port ${dev.port}</span>
-              <span aria-hidden="true">·</span>
-              <span class="mono">${escapeHtml(dev.deviceId)}</span>
-            </div>
-          </div>
-          ${badge}
-        </div>
-        ${
-          category === 'stale'
-            ? `<p class="device-warn">This FP2 was factory-reset since it was paired here, so the
-                 saved pairing (HAP id <span class="mono">${escapeHtml(dev.staleDeviceId ?? '?')}</span>) can no
-                 longer work — the device now reports
-                 <span class="mono">${escapeHtml(dev.deviceId)}</span>.
-                 Remove the dead pairing, then pair it again.</p>
-               <button type="button" class="btn device-forget" data-pairing-key="${escapeHtml(dev.pairingKey ?? '')}">
-                 Forget pairing
-               </button>`
-            : ''
-        }
-        ${
-          category === 'claimed'
-            ? `<p class="device-warn">This FP2 is paired with another controller.
-                 Open <strong>Aqara Home</strong> → tap the FP2 → and either
-                 use <em>Remove from Home</em>, or factory-reset the device
-                 (10-second long-press) before adding it here.</p>`
-            : ''
-        }
-        ${
-          // A device that is paired but has no config entry still has work to do —
-          // give it the primary call-to-action. One that is fully configured and
-          // running is offered a quieter "Reconfigure", so the list doesn't imply
-          // every set-up sensor is an outstanding task.
-          category === 'needs-config'
-            ? `<p class="hint">Paired, but not in your config yet — finish setting it up to
-                 expose it to HomeKit.</p>
-               <button type="button" class="btn primary device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
-                 Finish setting up
-               </button>`
-            : category === 'configured'
-              ? `<button type="button" class="btn device-configure" data-device-id="${escapeHtml(dev.deviceId)}">
-                   Reconfigure
-                 </button>`
-              : category === 'available'
-                ? `<button type="button" class="btn primary device-pick" data-device-id="${escapeHtml(dev.deviceId)}">
-                     Use this device
-                   </button>`
-                : ''
-        }
-        ${
-          // Offered whenever this FP2 has a config entry — including a working one,
-          // since removing a device you no longer want is a normal thing to do.
-          // "Forget pairing" (above) only drops the credential so the same sensor
-          // can be re-paired; this removes the device from the plugin entirely.
-          block
-            ? `<button type="button" class="btn device-remove" data-config-host="${escapeHtml(block.host)}"
-                       data-pairing-key="${escapeHtml(dev.pairingKey ?? '')}">
-                 Remove device
-               </button>`
-            : ''
-        }
-      `;
-      listEl.appendChild(li);
+      // Matched devices reuse the config key so this set() REPLACES the
+      // phase-1 pending card in place. Collision guard: if a second device
+      // somehow matches the same block, it keys on its own deviceId so
+      // neither row is silently dropped.
+      const key = block && !liveKeys.has(cfgKey(block)) ? cfgKey(block) : devKey(dev);
+      liveKeys.add(key);
+      currentVms.set(key, buildLiveVm(dev, block, key));
+    }
+    // Configured FP2s the scan missed stay listed (a briefly-offline or
+    // slow-to-announce device must never silently disappear from setup) —
+    // they just degrade from "checking network…" to "not detected right now".
+    for (const [key, vm] of currentVms) {
+      if (vm.category === 'configured-pending') {
+        currentVms.set(key, buildConfigVm(vm.block, /* pending */ false));
+      }
     }
 
-    // Always list FP2s already in config, even if the scan missed them this
-    // round (a briefly-offline or slow-to-announce device) — a configured
-    // device should never silently disappear from setup.
-    const offlineBlocks = configured.filter((b) => b.host && !matchedBlocks.has(b));
-    for (const block of offlineBlocks) {
-      listEl.appendChild(renderOfflineDevice(block));
+    renderList();
+    if (currentVms.size === 0) showEmptyState(null);
+  } catch (err) {
+    // Non-destructive: the phase-1 cards stay on screen. Only fall back to the
+    // full empty-state panel when there was nothing to show in the first place.
+    if (currentVms.size === 0) {
+      showEmptyState(err);
+    } else {
+      showScanError(err);
     }
+  } finally {
+    setScanning(false);
+  }
+}
 
-    if (devices.length + offlineBlocks.length === 0) {
-      emptyEl.hidden = false;
+/* One delegated handler for every button in the device list — cards are
+ * re-rendered wholesale, so per-button listeners would need rebinding on
+ * every paint. The vm is looked up from the card's stable key. */
+async function onDeviceListClick(e) {
+  const btn = e.target.closest('button');
+  if (!btn || btn.disabled) return;
+  const li = btn.closest('.device');
+  const vm = li ? currentVms.get(li.dataset.key) : null;
+  if (!vm) return;
+
+  if (btn.classList.contains('device-pick')) {
+    if (!vm.dev) return;
+    state.mode = 'pair';
+    // An FP2 being re-paired (its pairing was forgotten, or it was reset)
+    // usually still has its config entry. Reuse it so we update that block in
+    // place — keeping the user's chosen name, zone names and options — rather
+    // than appending a duplicate entry for the same device.
+    state.matchedConfigHost = vm.block?.host ?? null;
+    state.selectedDevice = vm.dev;
+    state.name = vm.block?.name ?? suggestDefaultName(vm.dev);
+    $('#manual-host-field').hidden = true;
+    show('pin');
+    $('#pin-input').focus();
+    return;
+  }
+
+  if (btn.classList.contains('device-configure')) {
+    if (vm.dev) enterConfigure(vm.dev);
+    return;
+  }
+
+  if (btn.classList.contains('device-configure-offline')) {
+    if (vm.block) {
+      enterConfigure({
+        name: vm.block.name,
+        host: null,
+        port: vm.block.port ?? null,
+        deviceId: null,
+        _configBlock: vm.block,
+        _offline: true,
+      });
+    }
+    return;
+  }
+
+  if (btn.classList.contains('device-remove')) {
+    const configHost = vm.configHost;
+    if (!configHost) return;
+    // Destructive and not undoable from here: it drops the pairing, the config
+    // entry, and (on restart) the HomeKit accessory along with its room and any
+    // automations referencing it. Confirm first.
+    if (!window.confirm(`Remove "${configHost}" from this plugin?\n\nThis deletes its pairing and its config entry. Its HomeKit accessory (and any automations using it) will be removed when Homebridge restarts.`)) {
       return;
     }
-    listEl.hidden = false;
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    try {
+      await removeDevice({ configHost, pairingKey: vm.pairingKey || null });
+      await runDiscover();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Remove device';
+      homebridge.toast.error(err?.message ?? String(err), 'Could not remove device');
+    }
+    return;
+  }
 
-    listEl.querySelectorAll('.device-configure-offline').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const block = configured.find((b) => b.host === btn.dataset.configHost);
-        if (block) enterConfigure({ name: block.name, host: null, port: block.port ?? null, deviceId: null, _configBlock: block, _offline: true });
-      });
-    });
-
-    listEl.querySelectorAll('.device-pick').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
-        if (!dev) return;
-        state.mode = 'pair';
-        // An FP2 being re-paired (its pairing was forgotten, or it was reset)
-        // usually still has its config entry. Reuse it so we update that block in
-        // place — keeping the user's chosen name, zone names and options — rather
-        // than appending a duplicate entry for the same device.
-        const existing = dev._configBlock;
-        state.matchedConfigHost = existing?.host ?? null;
-        state.selectedDevice = dev;
-        state.name = existing?.name ?? suggestDefaultName(dev);
-        $('#manual-host-field').hidden = true;
-        show('pin');
-        $('#pin-input').focus();
-      });
-    });
-
-    listEl.querySelectorAll('.device-configure').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const dev = devices.find((d) => d.deviceId === btn.dataset.deviceId);
-        if (dev) enterConfigure(dev);
-      });
-    });
-
-    listEl.querySelectorAll('.device-remove').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const configHost = btn.dataset.configHost;
-        if (!configHost) return;
-        // Destructive and not undoable from here: it drops the pairing, the config
-        // entry, and (on restart) the HomeKit accessory along with its room and any
-        // automations referencing it. Confirm first.
-        if (!window.confirm(`Remove "${configHost}" from this plugin?\n\nThis deletes its pairing and its config entry. Its HomeKit accessory (and any automations using it) will be removed when Homebridge restarts.`)) {
-          return;
-        }
-        btn.disabled = true;
-        btn.textContent = 'Removing…';
-        try {
-          await removeDevice({ configHost, pairingKey: btn.dataset.pairingKey || null });
-          await runDiscover();
-        } catch (err) {
-          btn.disabled = false;
-          btn.textContent = 'Remove device';
-          homebridge.toast.error(err?.message ?? String(err), 'Could not remove device');
-        }
-      });
-    });
-
-    listEl.querySelectorAll('.device-forget').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const key = btn.dataset.pairingKey;
-        if (!key) return;
-        btn.disabled = true;
-        btn.textContent = 'Removing…';
-        try {
-          await homebridge.request('/forget', { key });
-          // Re-scan so the device drops out of "stale" and back into
-          // "available" — i.e. ready to pair again.
-          await runDiscover();
-        } catch (err) {
-          btn.disabled = false;
-          btn.textContent = 'Forget pairing';
-          homebridge.toast.error(err?.message ?? String(err), 'Could not remove pairing');
-        }
-      });
-    });
-  } catch (err) {
-    statusEl.hidden = true;
-    emptyEl.hidden = false;
-    emptyEl.querySelector('h3').textContent = err?.timedOut ? 'Scan timed out' : 'Discovery failed';
-    emptyEl.querySelector('p').textContent = err?.timedOut
-      ? 'The setup server may still be starting up after a restart. Wait a moment and scan again.'
-      : (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
+  if (btn.classList.contains('device-forget')) {
+    if (!vm.pairingKey) return;
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    try {
+      await homebridge.request('/forget', { key: vm.pairingKey });
+      // Re-scan so the device drops out of "stale" and back into
+      // "available" — i.e. ready to pair again.
+      await runDiscover();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Forget pairing';
+      homebridge.toast.error(err?.message ?? String(err), 'Could not remove pairing');
+    }
   }
 }
 
@@ -838,6 +935,35 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/* Follow the Homebridge UI's own theme rather than the OS scheme — the two can
+ * disagree (host set to a dark theme while the OS is light, or vice versa).
+ * serverEnv.theme is available synchronously before first paint; theme names
+ * are a color name (light), "dark-mode"/"dark-mode-<color>", or "auto".
+ * userCurrentLightingMode() then gives the parent's authoritative answer,
+ * resolving "auto" too. When neither works (browser preview), no data-theme is
+ * set and the stylesheet's prefers-color-scheme fallback applies. */
+function applyHostTheme() {
+  const set = (mode) => {
+    document.documentElement.dataset.theme = mode;
+  };
+  const themeName = homebridge.serverEnv?.theme;
+  if (typeof themeName === 'string' && themeName.startsWith('dark-mode')) {
+    set('dark');
+  } else if (typeof themeName === 'string' && themeName && themeName !== 'auto') {
+    set('light');
+  }
+  if (typeof homebridge.userCurrentLightingMode === 'function') {
+    homebridge
+      .userCurrentLightingMode()
+      .then((mode) => {
+        if (mode === 'dark' || mode === 'light') set(mode);
+      })
+      .catch(() => {
+        /* keep whatever serverEnv gave us, or the CSS fallback */
+      });
+  }
+}
+
 /* ─── Wire up ──────────────────────────────────────────────────────── */
 
 function resetWizard() {
@@ -865,6 +991,8 @@ function resetWizard() {
 }
 
 function init() {
+  applyHostTheme();
+  $('#device-list').addEventListener('click', onDeviceListClick);
   $('#rescan-btn').addEventListener('click', runDiscover);
   $('#rescan-btn-main').addEventListener('click', runDiscover);
   $('#manual-entry-btn').addEventListener('click', () => {
@@ -917,13 +1045,49 @@ function init() {
 if (window.homebridge) {
   window.homebridge.addEventListener('ready', init);
 } else {
-  // Running outside the Homebridge UI iframe (e.g. browser preview).
+  // Running outside the Homebridge UI iframe (e.g. browser preview). Render
+  // fixture cards covering every category so the whole design is reviewable
+  // in a plain browser; theme follows the OS via the CSS fallback.
   document.addEventListener('DOMContentLoaded', () => {
-    show('discover');
-    $('#discover-status').hidden = true;
-    $('#no-devices').hidden = false;
-    $('#no-devices').querySelector('h3').textContent = 'Preview mode';
-    $('#no-devices').querySelector('p').textContent =
-      'mDNS discovery only runs inside the Homebridge UI. Open this plugin in Homebridge Config UI X to scan for live FP2 devices.';
+    // ?theme=dark / ?theme=light forces a theme in preview (no host to ask).
+    const params = new URLSearchParams(location.search);
+    const forcedTheme = params.get('theme');
+    if (forcedTheme === 'dark' || forcedTheme === 'light') {
+      document.documentElement.dataset.theme = forcedTheme;
+    }
+    // ?step=services jumps straight to a step to review its styling.
+    show(STEP_ORDER.includes(params.get('step')) ? params.get('step') : 'discover');
+    const fixtures = [
+      buildLiveVm(
+        { name: 'Presence-Sensor-FP2-6A0D', host: '192.168.1.116', port: 57897, deviceId: 'EC:35:4A:1F:1B:1F', knownByUs: true, availableToPair: false },
+        { name: 'fp2Office', host: 'Presence-Sensor-FP2-6A0D' },
+        'cfg:presence-sensor-fp2-6a0d'
+      ),
+      buildLiveVm(
+        { name: 'Presence-Sensor-FP2-BFEA', host: '192.168.1.197', port: 51451, deviceId: '65:25:B4:5A:03:E2', knownByUs: true, availableToPair: false },
+        null,
+        'dev:65:25:B4:5A:03:E2'
+      ),
+      buildConfigVm({ name: 'fp2Mudroom', host: 'Presence-Sensor-FP2-A1B2' }, true),
+      buildConfigVm({ name: 'fp2Attic', host: 'Presence-Sensor-FP2-C3D4' }, false),
+      buildLiveVm(
+        { name: 'Presence-Sensor-FP2-1234', host: '192.168.1.50', port: 5541, deviceId: '11:22:33:44:55:66', knownByUs: false, availableToPair: true },
+        null,
+        'dev:11:22:33:44:55:66'
+      ),
+      buildLiveVm(
+        { name: 'Hall FP2', host: '192.168.1.242', port: 57708, deviceId: '2F:58:33:3C:3D:82', knownByUs: false, availableToPair: false },
+        null,
+        'dev:2F:58:33:3C:3D:82'
+      ),
+      buildLiveVm(
+        { name: 'Presence-Sensor-FP2-9999', host: '192.168.1.60', port: 5542, deviceId: 'AA:BB:CC:DD:EE:FF', stalePairing: true, staleDeviceId: '99:88:77:66:55:44', pairingKey: 'fixture', availableToPair: false },
+        null,
+        'dev:AA:BB:CC:DD:EE:FF'
+      ),
+    ];
+    currentVms = new Map(fixtures.map((vm) => [vm.key, vm]));
+    renderList();
+    setScanning(true);
   });
 }

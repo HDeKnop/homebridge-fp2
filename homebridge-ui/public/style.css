@@ -1,13 +1,15 @@
-/* homebridge-fp2 custom UI — minimal, Homebridge-UI-friendly styling.
-   The host UI (Config UI X) already provides Bootstrap; we layer a few
-   intentional rules on top rather than fight it. */
+/* homebridge-fp2 custom UI.
+   Theme is driven by [data-theme] on <html>, set from the Config UI X host
+   theme in wizard.js; the prefers-color-scheme block below is only the
+   fallback for when that detection never ran (browser preview). */
 
 :root {
   --bg: transparent; /* inherit from host */
   --fg: #1f2937;
   --muted: #6b7280;
   --border: #e5e7eb;
-  --accent: #2563eb;
+  --card-bg: #ffffff;
+  --accent: #d97706; /* Homebridge orange family, contrast-safe */
   --accent-fg: #ffffff;
   --warn-bg: #fef3c7;
   --warn-border: #f59e0b;
@@ -20,16 +22,40 @@
   --radius: 8px;
 }
 
+:root[data-theme="dark"] {
+  --fg: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #3a4150;
+  --card-bg: #1c2330;
+  --accent: #f59e0b;
+  --accent-fg: #1a1205;
+  --warn-bg: #3a2a08;
+  --warn-border: #b45309;
+  --warn-fg: #fcd34d;
+  --ok-bg: #0b2f2a;
+  --ok-border: #0f766e;
+  --ok-fg: #6ee7b7;
+  --error: #f87171;
+  --code-bg: #1f2937;
+}
+
+/* Keep in sync with :root[data-theme="dark"] above. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --fg: #e5e7eb;
     --muted: #9ca3af;
-    --border: #374151;
-    --code-bg: #1f2937;
-    --warn-bg: #422006;
+    --border: #3a4150;
+    --card-bg: #1c2330;
+    --accent: #f59e0b;
+    --accent-fg: #1a1205;
+    --warn-bg: #3a2a08;
+    --warn-border: #b45309;
     --warn-fg: #fcd34d;
-    --ok-bg: #052e2b;
+    --ok-bg: #0b2f2a;
+    --ok-border: #0f766e;
     --ok-fg: #6ee7b7;
+    --error: #f87171;
+    --code-bg: #1f2937;
   }
 }
 
@@ -53,38 +79,67 @@ body {
 .hdr h1 {
   font-size: 20px;
   font-weight: 600;
-  margin: 0 0 16px;
+  margin: 0 0 20px;
 }
 
-/* Steps progress bar */
+/* Steps progress bar — numbered circles with connectors */
 .steps {
+  counter-reset: step;
   list-style: none;
   padding: 0;
-  margin: 0 0 24px;
+  margin: 0 0 28px;
   display: flex;
-  gap: 6px;
-  font-size: 12px;
-  flex-wrap: wrap;
+  font-size: 11px;
 }
 .steps li {
-  flex: 1 1 0;
-  min-width: 60px;
+  flex: 1;
+  position: relative;
   text-align: center;
-  padding: 6px 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   color: var(--muted);
-  background: transparent;
+  padding-top: 30px;
 }
-.steps li.current {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
+.steps li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 24px;
+  line-height: 21px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  font-size: 12px;
   font-weight: 600;
 }
-.steps li.done {
+.steps li:not(:first-child)::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  right: calc(50% + 16px);
+  left: calc(-50% + 16px);
+  height: 1.5px;
+  background: var(--border);
+}
+.steps li.current {
+  color: var(--fg);
+  font-weight: 600;
+}
+.steps li.current::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.steps li.done::before {
+  content: '\2713';
   border-color: var(--accent);
   color: var(--accent);
+}
+.steps li.done::after,
+.steps li.current::after {
+  background: var(--accent);
 }
 
 .step {
@@ -112,6 +167,16 @@ body {
   color: var(--error);
   font-size: 13px;
   margin: 8px 0;
+}
+
+.banner {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  color: var(--error);
+  font-size: 13px;
+  margin: 0 0 10px;
 }
 
 code, .mono {
@@ -207,16 +272,36 @@ code, .mono {
   background: transparent;
   color: var(--muted);
 }
+.btn.danger {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  background: transparent;
+}
+.btn.danger:hover {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  border-color: var(--error);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* Device list (step 1) */
-.status {
+.scan-inline {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 2px;
+  margin: 0 0 8px;
+}
+.scan-inline.boxed {
   padding: 12px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  color: var(--muted);
+  font-size: 14px;
 }
 .spinner {
   display: inline-block;
@@ -226,6 +311,7 @@ code, .mono {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -239,12 +325,23 @@ code, .mono {
   flex-direction: column;
   gap: 10px;
 }
+.device-group-header {
+  list-style: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 14px 0 -4px;
+}
+.device-group-header:first-child { margin-top: 0; }
 .device {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 12px 14px;
+  background: var(--card-bg);
 }
-.device-row {
+.device-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -262,6 +359,7 @@ code, .mono {
   margin-top: 2px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 .badge {
@@ -270,6 +368,7 @@ code, .mono {
   padding: 3px 8px;
   border-radius: 999px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 .badge.ok {
   background: var(--ok-bg);
@@ -282,20 +381,34 @@ code, .mono {
   border: 1px solid var(--warn-border);
 }
 .badge.info {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
 }
-.device-warn {
-  margin: 10px 0 12px;
-  padding: 10px 12px;
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-left: 3px solid var(--warn-border);
-  border-radius: 6px;
+.device-note {
   font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0 0;
 }
-.device-pick { margin-top: 4px; }
+.device-help {
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+.device-help summary {
+  cursor: pointer;
+  color: var(--accent);
+  user-select: none;
+}
+.device-help p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+.device-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
 
 .empty {
   padding: 16px;
