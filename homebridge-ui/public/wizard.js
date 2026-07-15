@@ -295,6 +295,21 @@ function showScanError(err) {
     ? 'Scan timed out — the setup server may still be starting up after a restart. Wait a moment and scan again.'
     : `Discovery failed: ${err?.message ?? 'Could not run mDNS discovery on the host.'}`;
   el.hidden = false;
+  // A 30s timeout has two very different causes; a quick liveness probe can
+  // tell them apart and give the user the remedy that actually applies.
+  if (err?.timedOut) {
+    withTimeout(homebridge.request('/ping'), 3_000, 'ping')
+      .then(() => {
+        el.textContent =
+          'The scan is responding slowly — this can happen right after a restart while the ' +
+          'system is busy. Wait a moment and Scan again.';
+      })
+      .catch(() => {
+        el.textContent =
+          'The setup window has lost its connection to the server (this can happen after a ' +
+          'Homebridge restart). Close this settings window and open it again.';
+      });
+  }
 }
 
 let emptyDefaults = null;
@@ -308,6 +323,19 @@ function showEmptyState(err) {
     p.textContent = err.timedOut
       ? 'The setup server may still be starting up after a restart. Wait a moment and scan again.'
       : (err && err.message) ? err.message : 'Could not run mDNS discovery on the host.';
+    if (err.timedOut) {
+      withTimeout(homebridge.request('/ping'), 3_000, 'ping')
+        .then(() => {
+          p.textContent =
+            'The scan is responding slowly — this can happen right after a restart while the ' +
+            'system is busy. Wait a moment and Scan again.';
+        })
+        .catch(() => {
+          p.textContent =
+            'The setup window has lost its connection to the server (this can happen after a ' +
+            'Homebridge restart). Close this settings window and open it again.';
+        });
+    }
   } else {
     h3.textContent = emptyDefaults.h3;
     p.innerHTML = emptyDefaults.p;

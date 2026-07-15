@@ -44,6 +44,9 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     this.onRequest('/normalize-pin', this.handleNormalizePin.bind(this));
     this.onRequest('/pair', this.handlePair.bind(this));
     this.onRequest('/inspect', this.handleInspect.bind(this));
+    // Liveness probe: lets the wizard tell "scan is slow" apart from "this
+    // settings session has lost its channel to the server entirely".
+    this.onRequest('/ping', async () => ({ pong: true }));
 
     // Tell the parent UI we're ready to receive requests.
     this.ready();
@@ -121,10 +124,11 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     if (!this._browser) {
       this._browser = new Fp2Browser({
         // Route to stderr: stdout carries this process's IPC framing to the
-        // Homebridge UI parent.
+        // Homebridge UI parent. debug included — socket/probe errors were
+        // invisible when this swallowed them, which cost a day of diagnosis.
         info: msg => console.error(msg),
         warn: msg => console.error(msg),
-        debug: () => {},
+        debug: msg => console.error(msg),
       });
       this._browser.start();
     }
@@ -154,6 +158,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     // describes every device this plugin is paired to (the runtime refreshes
     // each record's host/port/name on every successful connect), so those are
     // returned regardless and the scan problem is reported as a warning.
+    const startedAt = Date.now();
     let fp2s = new Map();
     let scanWarning = null;
     try {
@@ -237,6 +242,15 @@ class Fp2UiServer extends HomebridgePluginUiServer {
         fromStore: true,
       });
     }
+
+    // stderr → surfaces as [homebridge-fp2] in the Homebridge UI log. This
+    // completion line is what makes a silent/slow scan diagnosable from logs.
+    const fromStore = devices.filter(d => d.fromStore).length;
+    console.error(
+      `[fp2-ui] /discover done in ${Date.now() - startedAt}ms: ${devices.length} device(s)` +
+        (fromStore ? ` (${fromStore} from store)` : '') +
+        (scanWarning ? `, scan warning: ${scanWarning}` : '')
+    );
 
     return {
       devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
