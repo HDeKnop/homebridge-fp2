@@ -75,4 +75,10 @@ export interface StoredPairing {
    *  the file key for records written by this version. Optional: records written
    *  by older versions were keyed by host/IP and have no serial. */
   serial?: string;
+  /** mDNS instance name (e.g. `Presence-Sensor-FP2-8EA8`). Stored so the setup
+   *  wizard can match this record to a config entry whose `host` is the bonjour
+   *  name without needing the device to answer a live scan. Optional: absent
+   *  from older records until the runtime's next successful connect refreshes
+   *  them. */
+  name?: string;
 }

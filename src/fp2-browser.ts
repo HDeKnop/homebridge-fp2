@@ -259,7 +259,14 @@ export class Fp2Browser {
       throw new Error('Fp2Browser has been stopped; construct a new one to scan again');
     }
     this.start();
-    const deadline = Date.now() + timeoutMs;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    // On a cold cache, don't trust an early quiet spell: the first FP2 can
+    // answer within 200ms while others need a re-query or two (real multicast
+    // loss), and breaking after the first stable window returned inconsistent
+    // partial sets. Hold a cold scan open for at least three re-query rounds;
+    // a warm cache (browser has been re-querying all along) may exit early.
+    const minElapsed = this.cache.size === 0 ? DISCOVERY_REQUERY_MS * 3 : 0;
     let lastCount = -1;
     let stableSince = Date.now();
 
@@ -268,7 +275,11 @@ export class Fp2Browser {
       if (count !== lastCount) {
         lastCount = count;
         stableSince = Date.now();
-      } else if (count > 0 && Date.now() - stableSince >= DISCOVERY_REQUERY_MS * 2) {
+      } else if (
+        count > 0 &&
+        Date.now() - stableSince >= DISCOVERY_REQUERY_MS * 2 &&
+        Date.now() - started >= minElapsed
+      ) {
         // Two full re-query rounds with nothing new — the LAN has gone quiet.
         break;
       }

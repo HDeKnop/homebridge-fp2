@@ -149,7 +149,18 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     // `quick` serves from the shared browser's live cache when it has one — used
     // when returning to the list after pairing, where the network hasn't changed
     // and only the pairing state needs re-reading.
-    const fp2s = await this.scanFp2s(DISCOVERY_TIMEOUT_MS, { quick });
+    //
+    // A failed or timed-out scan is NOT fatal: the pairing store below still
+    // describes every device this plugin is paired to (the runtime refreshes
+    // each record's host/port/name on every successful connect), so those are
+    // returned regardless and the scan problem is reported as a warning.
+    let fp2s = new Map();
+    let scanWarning = null;
+    try {
+      fp2s = await this.scanFp2s(DISCOVERY_TIMEOUT_MS, { quick });
+    } catch (err) {
+      scanWarning = err?.message ?? String(err);
+    }
 
     // Index our stored pairings by both keys we might match on: the HAP deviceId
     // (proves this exact pairing is still valid) and the hardware serial (proves
@@ -170,6 +181,11 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       if (serial) bySerial.set(serial, rec);
     }
 
+    // Pairing records consumed by a live-scan device; whatever remains is
+    // appended afterwards as a store-backed entry, so a paired device is in the
+    // result even when the scan missed it entirely.
+    const consumed = new Set();
+
     const devices = [...fp2s.values()].map(dev => {
       const id = normalizeDeviceId(dev.deviceId)?.toLowerCase();
       const serial = dev.serial?.trim().toLowerCase();
@@ -182,6 +198,7 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       const staleRecord = !matchedById ? (matchedBySerial ?? legacyByHost) : undefined;
 
       const record = matchedById ?? staleRecord;
+      if (record) consumed.add(record);
       return {
         ...dev,
         knownByUs: matchedById !== undefined,
@@ -197,9 +214,45 @@ class Fp2UiServer extends HomebridgePluginUiServer {
       };
     });
 
+    // Store-backed entries: pairings the scan didn't surface this round. The
+    // record's host/port were refreshed on the runtime's last successful
+    // connect, so they are the best-known coordinates — mark them `fromStore`
+    // so the UI can say "last known address" rather than implying a live
+    // sighting. This is what keeps the wizard's device set consistent with the
+    // running platform's even when multicast is flaky.
+    for (const rec of records) {
+      if (consumed.has(rec)) continue;
+      devices.push({
+        name: rec.name ?? this.nameFromSerial(rec.serial),
+        host: rec.host,
+        allAddresses: [rec.host],
+        port: rec.port,
+        deviceId: normalizeDeviceId(rec.deviceId) ?? rec.deviceId,
+        availableToPair: false,
+        knownByUs: true,
+        storedHost: rec.host,
+        stalePairing: false,
+        pairingKey: rec.serial?.trim() || rec.host,
+        staleDeviceId: null,
+        fromStore: true,
+      });
+    }
+
     return {
       devices: devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
+      scanWarning,
     };
+  }
+
+  /**
+   * Derive the FP2's mDNS instance name from its hardware serial: the firmware
+   * names every unit `Presence-Sensor-FP2-<last 4 hex of serial>`. Fallback for
+   * records written before the store carried `name` — it's what lets such a
+   * record still match a config entry whose `host` is the bonjour name.
+   */
+  nameFromSerial(serial) {
+    const s = (serial ?? '').trim();
+    return /^[0-9A-Fa-f]{12}$/.test(s) ? `Presence-Sensor-FP2-${s.slice(-4).toUpperCase()}` : null;
   }
 
   /**
@@ -417,12 +470,23 @@ class Fp2UiServer extends HomebridgePluginUiServer {
     // Persist the pairing so the runtime plugin reuses it (no double-pair).
     try {
       const store = new PairingStore(join(this.homebridgeStoragePath, STORAGE_SUBDIR));
+      // The browser cache has the freshest record for this device — take the
+      // mDNS instance name (and serial) from it so this pairing can be matched
+      // to its config entry later without a live scan. Match on the normalized
+      // id: the cache keys on the mDNS colon form, while AccessoryPairingID may
+      // be hap-controller's hex-ASCII form.
+      const wantId = normalizeDeviceId(pairedDeviceId)?.toLowerCase();
+      const cached = [...this.browser().devices.values()].find(
+        d => normalizeDeviceId(d.deviceId)?.toLowerCase() === wantId
+      );
       await store.save({
         deviceId: pairedDeviceId,
         host: configHost,
         port: target.port,
         pairing,
         pairedAt: new Date().toISOString(),
+        serial: cached?.serial,
+        name: cached?.name,
       });
     } catch (err) {
       // Non-fatal: the runtime plugin can still pair itself. Surface nothing

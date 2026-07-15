@@ -147,7 +147,9 @@ function buildLiveVm(dev, block, key) {
     host: dev.host,
     port: dev.port,
     deviceId: dev.deviceId,
-    metaNote: null,
+    // fromStore: the server knows this device from its pairing record (kept
+    // fresh by the running platform), not from a live mDNS sighting this scan.
+    metaNote: dev.fromStore ? 'last known address' : null,
     pairingKey: dev.pairingKey ?? null,
     staleDeviceId: dev.staleDeviceId ?? null,
     configHost: block?.host ?? null,
@@ -354,11 +356,18 @@ async function doDiscover(quick = false) {
   try {
     // The UI server can take a moment to come up right after a bridge restart;
     // a plain request would then spin forever. Bound it and surface a retry.
-    const { devices } = await withTimeout(
+    const { devices, scanWarning } = await withTimeout(
       homebridge.request('/discover', { quick }),
       30_000,
       'discover'
     );
+    // The server answers with its store-backed devices even when the mDNS
+    // sweep itself failed — surface that as a warning, not an error state.
+    if (scanWarning) {
+      const el = $('#discover-error');
+      el.textContent = `Network scan had trouble (${scanWarning}) — showing known devices; new devices may be missing. Scan again to retry.`;
+      el.hidden = false;
+    }
 
     const liveKeys = new Set();
     for (const dev of devices) {
@@ -1067,6 +1076,11 @@ if (window.homebridge) {
         { name: 'Presence-Sensor-FP2-BFEA', host: '192.168.1.197', port: 51451, deviceId: '65:25:B4:5A:03:E2', knownByUs: true, availableToPair: false },
         null,
         'dev:65:25:B4:5A:03:E2'
+      ),
+      buildLiveVm(
+        { name: 'Presence-Sensor-FP2-D00D', host: '192.168.1.77', port: 5543, deviceId: '77:88:99:AA:BB:CC', knownByUs: true, availableToPair: false, fromStore: true },
+        { name: 'fp2Cellar', host: 'Presence-Sensor-FP2-D00D' },
+        'cfg:presence-sensor-fp2-d00d'
       ),
       buildConfigVm({ name: 'fp2Mudroom', host: 'Presence-Sensor-FP2-A1B2' }, true),
       buildConfigVm({ name: 'fp2Attic', host: 'Presence-Sensor-FP2-C3D4' }, false),

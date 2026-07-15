@@ -306,10 +306,15 @@ export class Fp2HapClient extends EventEmitter {
             host: discovered.address,
             port: discovered.port,
             serial: discovered.serial ?? stored.serial,
+            name: discovered.name ?? stored.name,
           };
           const oldKey = this.store.keyFor(stored);
           const newKey = this.store.keyFor(updated);
-          const changed = updated.host !== stored.host || updated.port !== stored.port || updated.serial !== stored.serial;
+          const changed =
+            updated.host !== stored.host ||
+            updated.port !== stored.port ||
+            updated.serial !== stored.serial ||
+            updated.name !== stored.name;
           if (changed) {
             await this.store.save(updated);
             if (newKey !== oldKey) {
