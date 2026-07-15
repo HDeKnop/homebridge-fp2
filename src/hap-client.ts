@@ -231,9 +231,7 @@ export class Fp2HapClient extends EventEmitter {
       // by this version) or — for a legacy record, which has no serial — by the
       // fact that we found it under this device's own host/IP key.
       const sameHardware =
-        stored.serial && discovered.serial
-          ? stored.serial.trim().toLowerCase() === discovered.serial.trim().toLowerCase()
-          : !stored.serial;
+        stored.serial && discovered.serial ? stored.serial.trim().toLowerCase() === discovered.serial.trim().toLowerCase() : !stored.serial;
       if (sameHardware && idChanged) {
         const label = discovered.serial ?? stored.host;
         this.markTerminalConfigError('stale pairing — FP2 was factory-reset');

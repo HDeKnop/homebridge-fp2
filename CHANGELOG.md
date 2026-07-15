@@ -99,7 +99,7 @@ test builds and were never published. This entry covers the changes since the
   indefinitely. The plugin no longer tries to restart Homebridge itself: Config UI
   X owns that and already prompts for a restart once the config is saved. Finish
   now saves, closes the window, and can no longer fail silently — any error is
-  surfaced instead of leaving a dead button. (The config *was* being saved
+  surfaced instead of leaving a dead button. (The config _was_ being saved
   correctly throughout; only the restart step failed.)
 - **The scan list showed every sensor twice.** Two discovery runs could overlap
   (a rescan click while one was still in flight, or the initial load racing a
@@ -125,10 +125,10 @@ test builds and were never published. This entry covers the changes since the
 
 ### Added
 
-- **"Remove device" in the setup UI.** Deletes an FP2's stored pairing *and* its
+- **"Remove device" in the setup UI.** Deletes an FP2's stored pairing _and_ its
   `config.json` entry; its HomeKit accessory is unregistered on the next restart.
   This is deliberately separate from **Forget pairing**, which drops only the
-  credential so the *same* sensor can be re-paired while keeping its name, zone
+  credential so the _same_ sensor can be re-paired while keeping its name, zone
   names, room and automations. Available for any configured FP2, including one
   that is offline (a sensor you have permanently removed could otherwise never be
   cleared from the UI, since "Configure" needs the device reachable).
