@@ -7,6 +7,37 @@ and follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-15
+
+First release published to npm since 0.4.3; versions 0.5.0–0.5.13 were internal
+test builds and were never published. This entry covers the changes since the
+0.5.9 changelog entry — see the 0.5.x entries below for the rest of the line.
+
+### Added
+
+- **A legacy unicast mDNS probe now runs alongside the multicast browser.**
+  Queries sent from an ephemeral port must be answered via unicast
+  (RFC 6762 §6.7), which sidesteps switches whose IGMP snooping forwards our
+  queries to the devices but never forwards the devices' multicast responses
+  back. On such networks the probe is what actually finds the FP2s; a scan that
+  only succeeded through it logs
+  `unicast probe surfaced N device(s) missed by multicast` so the environmental
+  gap is visible instead of silent.
+
+### Changed
+
+- **The setup wizard opens onto your devices, not onto a scan.** Configured
+  devices render instantly from `config.json` and are then checked for
+  reachability individually; enumerating the whole network is now an explicit
+  "Scan network" action. The device list renders from a single view-model map,
+  grouped into "Your devices", "Available to add", and "Needs attention", so
+  overlapping refreshes can no longer produce duplicate rows.
+- A scan failure or timeout no longer wipes the list: pairing-store-backed
+  devices are still returned (marked "last known address") and the scan problem
+  is shown as a warning banner instead of an error state.
+- The wizard follows the Homebridge UI's own light/dark theme rather than the
+  OS scheme, and general layout/CSS polish throughout.
+
 ## [0.5.9] — 2026-07-14
 
 ### Changed
