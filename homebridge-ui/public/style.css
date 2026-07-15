@@ -20,6 +20,10 @@
   --error: #b91c1c;
   --code-bg: #f3f4f6;
   --radius: 8px;
+  /* Type scale — exactly three sizes everywhere. */
+  --fs-title: 18px;
+  --fs-body: 13px;
+  --fs-small: 12px;
 }
 
 :root[data-theme="dark"] {
@@ -64,7 +68,7 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
+  font-size: var(--fs-body);
   line-height: 1.45;
   color: var(--fg);
   background: var(--bg);
@@ -76,29 +80,29 @@ body {
   padding: 12px 8px 24px;
 }
 
-.hdr h1 {
-  font-size: 18px;
+#app .hdr h1 {
+  font-size: var(--fs-title);
   font-weight: 600;
   margin: 0 0 16px;
 }
 
 /* Steps progress bar — numbered circles with connectors */
-.steps {
+#app .steps {
   counter-reset: step;
   list-style: none;
   padding: 0;
   margin: 0 0 28px;
   display: flex;
-  font-size: 11px;
+  font-size: var(--fs-small);
 }
-.steps li {
+#app .steps li {
   flex: 1;
   position: relative;
   text-align: center;
   color: var(--muted);
   padding-top: 30px;
 }
-.steps li::before {
+#app .steps li::before {
   counter-increment: step;
   content: counter(step);
   position: absolute;
@@ -111,10 +115,10 @@ body {
   border-radius: 50%;
   border: 1.5px solid var(--border);
   background: var(--card-bg);
-  font-size: 12px;
+  font-size: var(--fs-small);
   font-weight: 600;
 }
-.steps li:not(:first-child)::after {
+#app .steps li:not(:first-child)::after {
   content: '';
   position: absolute;
   top: 12px;
@@ -123,63 +127,63 @@ body {
   height: 1.5px;
   background: var(--border);
 }
-.steps li.current {
+#app .steps li.current {
   color: var(--fg);
   font-weight: 600;
 }
-.steps li.current::before {
+#app .steps li.current::before {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-fg);
 }
-.steps li.done::before {
+#app .steps li.done::before {
   content: '\2713';
   border-color: var(--accent);
   color: var(--accent);
 }
-.steps li.done::after,
-.steps li.current::after {
+#app .steps li.done::after,
+#app .steps li.current::after {
   background: var(--accent);
 }
 
-.step {
+#app .step {
   display: block;
 }
-.step[hidden] { display: none; }
+#app .step[hidden] { display: none; }
 
-.step h2 {
-  font-size: 17px;
+#app .step h2 {
+  font-size: var(--fs-title);
   margin: 0 0 6px;
 }
 
-.muted {
+#app .muted {
   color: var(--muted);
   margin: 0 0 16px;
 }
 
-.hint {
+#app .hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-small);
   margin: 6px 0 0;
 }
 
-.error {
+#app .error {
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin: 8px 0;
 }
 
-.banner {
+#app .banner {
   padding: 10px 12px;
   border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
   background: color-mix(in srgb, var(--error) 8%, transparent);
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin: 0 0 10px;
 }
 
-code, .mono {
+#app code, #app .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.92em;
   background: var(--code-bg);
@@ -188,32 +192,32 @@ code, .mono {
 }
 
 /* Fields */
-.field {
+#app .field {
   display: block;
   margin: 0 0 12px;
 }
-.field span {
+#app .field span {
   display: block;
   font-weight: 500;
   margin-bottom: 4px;
 }
-.field input[type="text"] {
+#app .field input[type="text"] {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 15px;
+  font-size: var(--fs-body);
   background: transparent;
   color: var(--fg);
 }
-.field input:focus {
+#app .field input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
   border-color: var(--accent);
 }
 
 /* Toggles */
-.toggle {
+#app .toggle {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -223,93 +227,98 @@ code, .mono {
   margin: 0 0 10px;
   cursor: pointer;
 }
-.toggle input[type="checkbox"] {
+#app .toggle input[type="checkbox"] {
   width: 18px;
   height: 18px;
   margin-top: 2px;
   flex-shrink: 0;
   accent-color: var(--accent);
 }
-.toggle-body {
+#app .toggle-body {
   display: block;
 }
-.toggle-label {
+#app .toggle-label {
   display: block;
   font-weight: 500;
 }
-.toggle-desc {
+#app .toggle-desc {
   display: block;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin-top: 2px;
 }
 
 /* Buttons */
-.actions {
+#app .actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
   margin-top: 20px;
   flex-wrap: wrap;
 }
-.btn {
+#app .btn {
   padding: 8px 16px;
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.45;
+  font-weight: 500;
+  font-family: inherit;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  font-size: 14px;
+  font-size: var(--fs-body);
   cursor: pointer;
   background: transparent;
   color: var(--fg);
 }
-.btn:hover { border-color: var(--accent); }
-.btn.primary {
+#app .btn:hover { border-color: var(--accent); }
+#app .btn.primary {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: var(--accent);
 }
-.btn.primary:hover { opacity: 0.92; }
-.btn.ghost {
+#app .btn.primary:hover { opacity: 0.92; }
+#app .btn.ghost {
   background: transparent;
   color: var(--muted);
 }
-.btn.danger {
+#app .btn.danger {
   color: var(--error);
   border-color: color-mix(in srgb, var(--error) 40%, transparent);
   background: transparent;
 }
-.btn.danger:hover {
+#app .btn.danger:hover {
   background: color-mix(in srgb, var(--error) 10%, transparent);
   border-color: var(--error);
 }
-.btn:disabled {
+#app .btn:disabled {
   opacity: 0.55;
   cursor: default;
   pointer-events: none;
 }
 /* Two-step confirm state: first click arms, second click removes. */
-.btn.danger.armed {
+#app .btn.danger.armed {
   background: var(--error);
   color: #ffffff;
   border-color: var(--error);
 }
 
 /* Device list (step 1) */
-.scan-inline {
+#app .scan-inline {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--muted);
   padding: 6px 2px;
   margin: 0 0 8px;
 }
-.scan-inline.boxed {
+#app .scan-inline.boxed {
   padding: 12px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  font-size: 14px;
+  font-size: var(--fs-body);
 }
-.spinner {
+#app .spinner {
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -323,7 +332,7 @@ code, .mono {
   to { transform: rotate(360deg); }
 }
 
-.device-list {
+#app .device-list {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -331,112 +340,115 @@ code, .mono {
   flex-direction: column;
   gap: 10px;
 }
-.device-group-header {
+#app .device-group-header {
   list-style: none;
-  font-size: 11px;
+  font-size: var(--fs-small);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
   margin: 14px 0 -4px;
 }
-.device-group-header:first-child { margin-top: 0; }
-.device {
+#app .device-group-header:first-child { margin-top: 0; }
+#app .device {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
   background: var(--card-bg);
 }
-.device-head {
+#app .device-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
 }
-.device-main { flex: 1 1 auto; min-width: 0; }
-.device-name {
+#app .device-main { flex: 1 1 auto; min-width: 0; }
+#app .device-name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.device-meta {
+#app .device-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-small);
   margin-top: 2px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.badge {
-  font-size: 11px;
+#app .badge {
+  font-size: var(--fs-small);
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.4;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 999px;
   flex-shrink: 0;
   white-space: nowrap;
 }
-.badge.ok {
+#app .badge.ok {
   background: var(--ok-bg);
   color: var(--ok-fg);
   border: 1px solid var(--ok-border);
 }
-.badge.warn {
+#app .badge.warn {
   background: var(--warn-bg);
   color: var(--warn-fg);
   border: 1px solid var(--warn-border);
 }
-.badge.info {
+#app .badge.info {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
 }
-.device-note {
-  font-size: 13px;
+#app .device-note {
+  font-size: var(--fs-small);
   color: var(--muted);
   margin: 8px 0 0;
 }
-.device-help {
-  font-size: 13px;
+#app .device-help {
+  font-size: var(--fs-small);
   margin: 6px 0 0;
 }
-.device-help summary {
+#app .device-help summary {
   cursor: pointer;
   color: var(--accent);
   user-select: none;
 }
-.device-help p {
+#app .device-help p {
   margin: 8px 0 0;
   color: var(--muted);
 }
-.device-actions {
+#app .device-actions {
   display: flex;
   gap: 8px;
   margin-top: 12px;
   flex-wrap: wrap;
 }
 
-.empty {
+#app .empty {
   padding: 16px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   text-align: center;
   color: var(--muted);
 }
-.empty h3 {
+#app .empty h3 {
   margin: 0 0 6px;
   color: var(--fg);
-  font-size: 15px;
+  font-size: var(--fs-body);
 }
-.empty p { margin: 0 0 12px; }
+#app .empty p { margin: 0 0 12px; }
 
-.preview {
+#app .preview {
   background: var(--code-bg);
   padding: 12px;
   border-radius: var(--radius);
   overflow-x: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--fs-small);
   white-space: pre;
   margin: 0 0 12px;
 }
