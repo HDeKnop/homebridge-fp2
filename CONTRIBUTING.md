@@ -22,7 +22,7 @@ npm run lint
 
 Requirements:
 
-- Node.js **18.20+** (LTS 20 or 22 also fine — CI runs all three)
+- Node.js **22 or 24** (matches `engines.node` — CI runs both)
 - A real FP2 is **not** required for development — the parser and mapper
   modules are exercised entirely from HAP fixtures in `test/fixtures.ts`.
 
@@ -66,7 +66,7 @@ orientation:
 1. Open an issue first for non-trivial changes — saves time if the
    direction needs discussion before code is written
 2. Branch from `main`, make your changes, push, open a PR
-3. CI must be green (lint, typecheck, test, build, coverage on Node 18/20/22)
+3. CI must be green (lint, typecheck, test, build, coverage on Node 22/24)
 4. PR description: link the issue, note any FP2 firmware tested against,
    and mention anything subtle for the reviewer
 5. Squash-merge is the default — keep your branch's history tidy or let

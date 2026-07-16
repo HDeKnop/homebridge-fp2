@@ -13,9 +13,9 @@ Plugin development for the Aqara Presence Sensor FP2.
 ## Build
 
 ```sh
-pnpm install            # or npm install
-pnpm run build          # tsc → dist/
-pnpm run lint
+npm install
+npm run build           # tsc → dist/
+npm run lint
 ```
 
 To install locally into Homebridge:
