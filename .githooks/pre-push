@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-push gate: full tsc build (typecheck + emit) before anything reaches
+# GitHub. Complements the pre-commit hook, which runs the fast checks
+# (format, lint, tests) but skips the build — ~2 min on this iCloud-synced
+# folder, too slow for every commit but fine once per push.
+#
+# Bypass in an emergency with: git push --no-verify
+
+set -e
+
+echo "pre-push: build (tsc typecheck — slow on this folder, ~2 min)"
+npm run --silent build
