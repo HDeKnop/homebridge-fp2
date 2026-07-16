@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-commit gate: refuse the commit unless format, lint, and tests pass.
+# Mirrors the CI checks that can fail fast (the slow tsc build is left to CI
+# and the preversion/prepublishOnly hooks). Installed via the package.json
+# "prepare" script, which points git at this committed .githooks directory.
+#
+# Bypass in an emergency with: git commit --no-verify
+
+set -e
+
+echo "pre-commit: prettier format check"
+npm run --silent format:check || {
+  echo ""
+  echo "pre-commit: formatting issues found — run 'npm run format' and re-stage."
+  exit 1
+}
+
+echo "pre-commit: eslint"
+npm run --silent lint
+
+echo "pre-commit: tests"
+npm test --silent
